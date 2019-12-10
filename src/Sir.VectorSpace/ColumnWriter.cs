@@ -5,22 +5,19 @@ namespace Sir.VectorSpace
 {
     public class ColumnWriter : IDisposable
     {
-        private readonly long _keyId;
-        private readonly ulong _collectionId;
-        private static readonly object _indexFileSync = new object();
         private readonly Stream _ixStream;
 
         public ColumnWriter(
-            ulong collectionId, 
-            long keyId,
             Stream indexStream)
         {
-            _keyId = keyId;
-            _collectionId = collectionId;
             _ixStream = indexStream;
         }
 
-        public (int depth, int width) CreatePage(VectorNode column, Stream vectorStream, Stream postingsStream, PageIndexWriter pageIndexWriter)
+        public (int depth, int width) CreatePage(
+            VectorNode column, 
+            Stream vectorStream, 
+            Stream postingsStream, 
+            PageIndexWriter pageIndexWriter)
         {
             var page = GraphBuilder.SerializeTree(column, _ixStream, vectorStream, postingsStream);
 

@@ -6,7 +6,6 @@ namespace Sir
     {
         IConfigurationProvider Config { get; }
         string Dir { get; }
-        IStringModel Model { get; }
 
         bool CollectionExists(ulong collectionId);
         bool CollectionIsIndexOnly(ulong collectionId);

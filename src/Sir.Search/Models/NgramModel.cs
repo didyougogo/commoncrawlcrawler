@@ -7,49 +7,37 @@ using System.Runtime.InteropServices;
 
 namespace Sir.Search
 {
-    public class BocModel : IStringModel
+    public class NGramModel : IStringModel
     {
-        public double IdenticalAngle => 0.9d;
+        public double IdenticalAngle => 0.999d;
         public double FoldAngle => 0.6d;
         public int VectorWidth => 256;
 
         public IEnumerable<IVector> Tokenize(string text)
         {
+            const int sampleSize = 8;
             var source = text.ToCharArray();
-            var embedding = new SortedList<int, float>();
-            var offset = 0;
-            int index = 0;
 
-            for (; index < source.Length; index++)
+            for (int index = 0; index < source.Length; index++)
             {
-                char c = source[index];
+                var embedding = new SortedList<int, float>(sampleSize);
+                var i = 0;
 
-                if (c < VectorWidth && char.IsLetter(c))
+                while (source.Length - (index + i) > 1 && embedding.Count < sampleSize)
                 {
-                    embedding.AddOrAppendToComponent(char.ToLower(c), 1);
-                }
-                else
-                {
-                    if (embedding.Count > 0)
+                    char c = char.ToLower(source[index + i++]);
+
+                    if (c < VectorWidth - 1 && char.IsLetterOrDigit(c))
                     {
-                        yield return new IndexedVector(
-                                embedding,
-                                text.Substring(offset, index - offset).ToCharArray(),
-                                VectorWidth,
-                                10);
-
-                        embedding = new SortedList<int, float>();
+                        embedding.AddOrAppendToComponent(c, 1);
                     }
-
-                    offset = index+1;
                 }
-            }
 
-            if (embedding.Count > 0)
                 yield return new IndexedVector(
                         embedding,
-                        text.Substring(index, index - offset).ToCharArray(),
+                        text.Substring(index, i).ToCharArray(),
                         VectorWidth);
+            }
         }
 
         public double CosAngle(IVector vec1, IVector vec2)

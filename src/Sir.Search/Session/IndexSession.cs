@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Sir.Search
 {
@@ -22,6 +23,7 @@ namespace Sir.Search
         public ConcurrentDictionary<long, VectorNode> Index { get; }
 
         private readonly ILogger<IndexSession> _logger;
+        private readonly VectorNode _lexicon;
 
         public IndexSession(
             ulong collectionId,
@@ -38,16 +40,16 @@ namespace Sir.Search
             Model = model;
             Index = new ConcurrentDictionary<long, VectorNode>();
             _logger = logger;
+            _lexicon = new VectorNode();
         }
 
-        public IList<VectorNode> GetDistinct(long docId, IEnumerable<IVector> tokens)
+        private IEnumerable<IVector> GetDistinctTerms(IEnumerable<IVector> tokens)
         {
             var document = new VectorNode();
-            var distinct = new List<VectorNode>();
 
             foreach (var token in tokens)
             {
-                var node = new VectorNode(token, docId);
+                var node = new VectorNode(token);
 
                 if (!GraphBuilder.MergeOrAdd(
                     document,
@@ -56,37 +58,34 @@ namespace Sir.Search
                     Model.FoldAngle,
                     Model.IdenticalAngle))
                 {
-                    distinct.Add(node);
+                    yield return node.Vector;
                 }
             }
-
-            return distinct;
         }
 
         public void Put(long docId, long keyId, string value)
         {
-            var tokens = GetDistinct(docId, (IList<IVector>)Model.Tokenize(value));
-            var column = Index.GetOrAdd(keyId, new VectorNode());
+            //var tokens = GetDistinctTerms(docId, (IList<IVector>)Model.Tokenize(value));
+            //var column = Index.GetOrAdd(keyId, new VectorNode());
 
-            foreach (var node in tokens)
+            //foreach (var token in tokens)
+            //{
+            //    Put(docId, token, column);
+            //}
+
+            var tokens = Model.Tokenize(value);
+
+            foreach (var token in tokens)
             {
+                var node = new VectorNode(token, docId);
+
                 GraphBuilder.MergeOrAdd(
-                    column,
-                    new VectorNode(node.Vector, docId),
+                    _lexicon,
+                    node,
                     Model,
                     Model.FoldAngle,
                     Model.IdenticalAngle);
             }
-        }
-
-        public void Put(long docId, IVector vector, VectorNode column)
-        {
-            GraphBuilder.MergeOrAdd(
-                column,
-                new VectorNode(vector, docId),
-                Model,
-                Model.FoldAngle,
-                Model.IdenticalAngle);
         }
 
         public IndexInfo GetIndexInfo()
@@ -114,12 +113,12 @@ namespace Sir.Search
             foreach (var column in Index)
             {
                 using (var indexStream = _sessionFactory.CreateAppendStream(Path.Combine(_sessionFactory.Dir, $"{_collectionId}.{column.Key}.ix")))
-                using (var columnWriter = new ColumnWriter(_collectionId, column.Key, indexStream))
+                using (var columnWriter = new ColumnWriter(indexStream))
                 using (var pageIndexWriter = new PageIndexWriter(_sessionFactory.CreateAppendStream(Path.Combine(_sessionFactory.Dir, $"{_collectionId}.{column.Key}.ixtp"))))
                 {
                     var size = columnWriter.CreatePage(column.Value, _vectorStream, _postingsStream, pageIndexWriter);
 
-                    _logger.LogInformation($"serialized column {column.Key} weight {column.Value.Weight} {size}");
+                    _logger.LogInformation($"serialized key {column.Key} segment with weight {column.Value.Weight} and size {size}");
                 }
             }
 

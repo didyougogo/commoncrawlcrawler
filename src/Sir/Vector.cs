@@ -9,24 +9,31 @@ namespace Sir
 {
     public class IndexedVector : IVector
     {
-        public Memory<char>? Data { get; }
+        public ReadOnlyMemory<char>? Data { get; }
         public Vector<float> Value { get; private set; }
         public int ComponentCount { get; }
 
-        public IndexedVector(SortedList<int, float> dictionary, Memory<char> data, int vectorWidth)
+        public IndexedVector(SortedList<int, float> dictionary, ReadOnlyMemory<char> data, int vectorWidth, int? maxComponents = null)
         {
-            var tuples = new Tuple<int, float>[Math.Min(dictionary.Count, vectorWidth)];
+            if (maxComponents.HasValue && maxComponents > vectorWidth)
+                throw new ArgumentOutOfRangeException(nameof(maxComponents));
+            else if (maxComponents == null)
+                maxComponents = vectorWidth;
+
+            var tuples = new Tuple<int, float>[Math.Min(dictionary.Count, maxComponents.Value)];
             var i = 0;
 
             foreach (var p in dictionary)
             {
-                if (i == vectorWidth)
+                if (i == (maxComponents ?? vectorWidth))
                     break;
 
                 tuples[i++] = new Tuple<int, float>(p.Key, p.Value);
             }
 
-            Value = CreateVector.SparseOfIndexed(vectorWidth, tuples);
+            Value = CreateVector.Sparse(
+                SparseVectorStorage<float>.OfIndexedEnumerable(vectorWidth, tuples));
+
             ComponentCount = tuples.Length;
             Data = data;
         }
@@ -91,6 +98,6 @@ namespace Sir
         Vector<float> Value { get; }
         void Serialize(Stream stream);
         int ComponentCount { get; }
-        Memory<char>? Data { get; }
+        ReadOnlyMemory<char>? Data { get; }
     }
 }

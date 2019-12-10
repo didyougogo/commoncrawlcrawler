@@ -73,6 +73,10 @@ namespace Sir.DbUtil
             {
                 WriteWet(args, model, loggerFactory);
             }
+            else if (command == "train_wet")
+            {
+                TrainWet(args, model, loggerFactory);
+            }
             else if (command == "truncate")
             {
                 Truncate(args, model, loggerFactory);
@@ -108,6 +112,26 @@ namespace Sir.DbUtil
                 sessionFactory.Truncate(collectionId);
 
                 sessionFactory.Write(writeJob, reportSize:1000);
+            }
+        }
+
+        private static void TrainWet(string[] args, IStringModel model, ILoggerFactory logger)
+        {
+            var fileName = args[1];
+            var collectionId = "lexicon".ToHash();
+            var indexedFieldNames = new HashSet<string> { "description" };
+
+            var writeJob = new Job(
+                collectionId,
+                ReadWetFile(fileName),
+                model,
+                indexedFieldNames);
+
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
+            {
+                sessionFactory.Truncate(collectionId);
+
+                sessionFactory.Train(writeJob, reportSize: 10);
             }
         }
 

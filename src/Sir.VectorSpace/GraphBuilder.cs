@@ -60,8 +60,7 @@ namespace Sir.VectorSpace
             VectorNode node,
             IDistanceCalculator model, 
             double foldAngle, 
-            double identicalAngle,
-            Func<long> identity)
+            double identicalAngle)
         {
             var cursor = root;
 
@@ -77,9 +76,19 @@ namespace Sir.VectorSpace
                 {
                     if (cursor.Left == null)
                     {
-                        node.PostingsOffset = identity();
-                        cursor.Left = node;
-                        return node.PostingsOffset;
+                        lock (cursor.Sync)
+                        {
+                            if (cursor.Left == null)
+                            {
+                                node.PostingsOffset = root.Weight;
+                                cursor.Left = node;
+                                return node.PostingsOffset;
+                            }
+                            else
+                            {
+                                cursor = cursor.Left;
+                            }
+                        }
                     }
                     else
                     {
@@ -90,9 +99,85 @@ namespace Sir.VectorSpace
                 {
                     if (cursor.Right == null)
                     {
-                        node.PostingsOffset = identity();
-                        cursor.Right = node;
-                        return node.PostingsOffset;
+                        lock (cursor.Sync)
+                        {
+                            if (cursor.Right == null)
+                            {
+                                node.PostingsOffset = root.Weight;
+                                cursor.Right = node;
+                                return node.PostingsOffset;
+                            }
+                            else
+                            {
+                                cursor = cursor.Right;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        cursor = cursor.Right;
+                    }
+                }
+            }
+        }
+
+        public static void IncrementId(
+            VectorNode root,
+            VectorNode node,
+            IDistanceCalculator model,
+            double foldAngle,
+            double identicalAngle)
+        {
+            var cursor = root;
+
+            while (true)
+            {
+                var angle = cursor.Vector == null ? 0 : model.CosAngle(node.Vector, cursor.Vector);
+
+                if (angle >= identicalAngle)
+                {
+                    return;
+                }
+                else if (angle > foldAngle)
+                {
+                    if (cursor.Left == null)
+                    {
+                        lock (cursor.Sync)
+                        {
+                            if (cursor.Left == null)
+                            {
+                                node.PostingsOffset = root.Weight;
+                                cursor.Left = node;
+                                return;
+                            }
+                            else
+                            {
+                                cursor = cursor.Left;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        cursor = cursor.Left;
+                    }
+                }
+                else
+                {
+                    if (cursor.Right == null)
+                    {
+                        lock (cursor.Sync)
+                        {
+                            if (cursor.Right == null)
+                            {
+                                node.PostingsOffset = root.Weight;
+                                cursor.Right = node;
+                                return;
+                            }
+                            else
+                            {
+                                cursor = cursor.Right;
+                            }
+                        }
                     }
                     else
                     {
@@ -184,9 +269,12 @@ namespace Sir.VectorSpace
 
         public static void AddDocId(VectorNode target, VectorNode node)
         {
-            foreach (var docId in node.DocIds)
+            if (node.DocIds != null)
             {
-                target.DocIds.Add(docId);
+                foreach (var docId in node.DocIds)
+                {
+                    target.DocIds.Add(docId);
+                }
             }
         }
 
@@ -238,8 +326,6 @@ namespace Sir.VectorSpace
             {
                 if (node.PostingsOffset == -1)
                     SerializePostings(node, postingsStream);
-                else
-                    throw new InvalidComObjectException();
 
                 node.VectorOffset = VectorOperations.SerializeVector(node.Vector, vectorStream);
 

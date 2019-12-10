@@ -5,10 +5,10 @@ namespace Sir
     public class Job
     {
         public IStringModel Model { get; }
-        public ulong CollectionId { get; private set; }
-        public IEnumerable<IDictionary<string, object>> Documents { get; private set; }
-        public HashSet<string> StoredFieldNames { get; private set; }
-        public HashSet<string> IndexedFieldNames { get; private set; }
+        public ulong CollectionId { get; }
+        public IEnumerable<IDictionary<string, object>> Documents { get; }
+        public HashSet<string> StoredFieldNames { get; }
+        public HashSet<string> IndexedFieldNames { get; }
 
         public Job(
             ulong collectionId, 
@@ -21,6 +21,18 @@ namespace Sir
             CollectionId = collectionId;
             Documents = documents;
             StoredFieldNames = storedFieldNames;
+            IndexedFieldNames = indexedFieldNames;
+        }
+
+        public Job(
+            ulong collectionId,
+            IEnumerable<IDictionary<string, object>> documents,
+            IStringModel model,
+            HashSet<string> indexedFieldNames)
+        {
+            Model = model;
+            CollectionId = collectionId;
+            Documents = documents;
             IndexedFieldNames = indexedFieldNames;
         }
     }
