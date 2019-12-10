@@ -4,7 +4,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 namespace Sir.Search
 {
@@ -29,6 +28,7 @@ namespace Sir.Search
             ulong collectionId,
             SessionFactory sessionFactory,
             IStringModel model,
+            VectorNode lexicon,
             IConfigurationProvider config,
             ILogger<IndexSession> logger)
         {
@@ -40,39 +40,11 @@ namespace Sir.Search
             Model = model;
             Index = new ConcurrentDictionary<long, VectorNode>();
             _logger = logger;
-            _lexicon = new VectorNode();
-        }
-
-        private IEnumerable<IVector> GetDistinctTerms(IEnumerable<IVector> tokens)
-        {
-            var document = new VectorNode();
-
-            foreach (var token in tokens)
-            {
-                var node = new VectorNode(token);
-
-                if (!GraphBuilder.MergeOrAdd(
-                    document,
-                    node,
-                    Model,
-                    Model.FoldAngle,
-                    Model.IdenticalAngle))
-                {
-                    yield return node.Vector;
-                }
-            }
+            _lexicon = lexicon;
         }
 
         public void Put(long docId, long keyId, string value)
         {
-            //var tokens = GetDistinctTerms(docId, (IList<IVector>)Model.Tokenize(value));
-            //var column = Index.GetOrAdd(keyId, new VectorNode());
-
-            //foreach (var token in tokens)
-            //{
-            //    Put(docId, token, column);
-            //}
-
             var tokens = Model.Tokenize(value);
 
             foreach (var token in tokens)

@@ -537,12 +537,23 @@ namespace Sir.Search
 
         public IndexSession CreateIndexSession(ulong collectionId)
         {
-            return new IndexSession(collectionId, this, Model, Config, _loggerFactory.CreateLogger<IndexSession>());
+            return new IndexSession(
+                collectionId, 
+                this, 
+                Model, 
+                _lexicon, 
+                Config, 
+                _loggerFactory.CreateLogger<IndexSession>());
         }
 
         public TrainSession CreateTrainLexiconSession()
         {
-            return new TrainSession(this, Model, _lexicon, Config, _loggerFactory.CreateLogger<TrainSession>());
+            return new TrainSession(
+                this, 
+                Model, 
+                _lexicon, 
+                Config, 
+                _loggerFactory.CreateLogger<TrainSession>());
         }
 
         public IReadSession CreateReadSession()

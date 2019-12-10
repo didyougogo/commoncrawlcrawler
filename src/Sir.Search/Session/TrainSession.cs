@@ -1,8 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using Sir.VectorSpace;
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
