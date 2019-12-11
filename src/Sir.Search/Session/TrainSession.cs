@@ -1,8 +1,13 @@
 ﻿using Microsoft.Extensions.Logging;
 using Sir.VectorSpace;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Sir.Search
@@ -18,18 +23,19 @@ namespace Sir.Search
         private readonly Stream _postingsStream;
         private readonly Stream _vectorStream;
         private readonly IStringModel _model;
-        private readonly ILogger<TrainSession> _logger;
-        private readonly VectorNode _lexicon;
+        private readonly ILogger _logger;
         private bool _flushed;
+        public int _merges;
 
-        public VectorNode Lexicon => _lexicon;
+        public int Merges { get { return _merges; } }
+
+        public ConcurrentDictionary<double, VectorNode> Lexicon { get; }
 
         public TrainSession(
             SessionFactory sessionFactory,
             IStringModel model,
-            VectorNode lexicon,
             IConfigurationProvider config,
-            ILogger<TrainSession> logger)
+            ILogger logger)
         {
             _collectionId = "lexicon".ToHash();
             _sessionFactory = sessionFactory;
@@ -37,26 +43,25 @@ namespace Sir.Search
             _postingsStream = sessionFactory.CreateAppendStream(Path.Combine(sessionFactory.Dir, $"{_collectionId}.pos"));
             _vectorStream = sessionFactory.CreateAppendStream(Path.Combine(sessionFactory.Dir, $"{_collectionId}.vec"));
             _model = model;
-            _lexicon = lexicon;
             _logger = logger;
-            _lexicon = new VectorNode();
+            Lexicon = new ConcurrentDictionary<double, VectorNode>();
         }
 
         public void Put(string value)
         {
-            var tokens = _model.Tokenize(value).ToList();
+            var tokens = _model.Tokenize(value.ToCharArray());
+
             Parallel.ForEach(tokens, token =>
             //foreach (var token in tokens)
             {
-                GraphBuilder.IncrementId(
-                    _lexicon,
-                    new VectorNode(token),
-                    _model,
-                    _model.FoldAngle,
-                    _model.IdenticalAngle);
+                var angle = _model.CosAngle(_model.SortingVector, token);
+
+                if (!Lexicon.TryAdd(angle, new VectorNode(token)))
+                {
+                    Interlocked.Increment(ref _merges);
+                }
             });
         }
-
 
         public void Flush()
         {
@@ -65,13 +70,25 @@ namespace Sir.Search
 
             _flushed = true;
 
+            var time = Stopwatch.StartNew();
+
             using (var indexStream = _sessionFactory.CreateAppendStream(Path.Combine(_sessionFactory.Dir, $"{_collectionId}.ix")))
             using (var columnWriter = new ColumnWriter(indexStream))
             using (var pageIndexWriter = new PageIndexWriter(_sessionFactory.CreateAppendStream(Path.Combine(_sessionFactory.Dir, $"{_collectionId}.ixtp"))))
             {
-                var size = columnWriter.CreatePage(_lexicon, _vectorStream, _postingsStream, pageIndexWriter);
+                var sorted = new SortedList<double, VectorNode>(Lexicon);
 
-                _logger.LogInformation($"serialized lexicon segment with weight {_lexicon.Weight} and size {size}");
+                _logger.LogInformation($"sorted list of angles in {time.Elapsed}");
+
+                time.Restart();
+
+                var size = columnWriter.CreateSortedPage(sorted, _vectorStream, _postingsStream, pageIndexWriter);
+
+                time.Stop();
+
+                File.WriteAllText("train.log", $"{sorted.Count} sorted words\r\n{string.Join("\r\n", sorted)}");
+
+                _logger.LogInformation($"serialized lexicon segment with node count {size.depth} in {time.Elapsed}");
             }
         }
 

@@ -11,6 +11,18 @@ namespace Sir.VectorSpace
     /// </summary>
     public static class VectorOperations
     {
+        public static IVector CreateSortingVector(int width)
+        {
+            var storage = new float[width];
+
+            for (int i = 0; i < width; i++)
+            {
+                storage[i] = (float)Math.Log(1+i);
+            }
+
+            return new IndexedVector(storage);
+        }
+
         public static IVector DeserializeVector(
             long vectorOffset, int componentCount, int vectorWidth, MemoryMappedViewAccessor vectorView)
         {
@@ -149,12 +161,26 @@ namespace Sir.VectorSpace
 
         public static void AddOrAppendToComponent(this SortedList<int, float> vec, int key, float value)
         {
-            if (vec.ContainsKey(key))
-                vec[key] += value;
+            float v;
+
+            if (vec.TryGetValue(key, out v))
+            {
+                if (Math.Abs(v) < 10)
+                    vec[key] = v * (1 + value);
+            }
             else
-                vec.Add(key, value);
+            {
+                var x = (float)Math.Sqrt(Math.Log(key));
+
+                if (vec.Count == 0)
+                    v = value * x;
+                else
+                   v = 1 - ((float)Math.Log(1 + (value * x * vec.Count)));
+
+                vec.Add(key, v);
+            }
         }
-        
+
         public static bool ContainsMany(this string text, char c)
         {
             var found = false;

@@ -26,7 +26,7 @@ namespace Sir.StringCompare
                         break;
                     }
 
-                    var node = new VectorNode(model.Tokenize(command).First());
+                    var node = new VectorNode(model.Tokenize(command.ToCharArray()).First());
                     GraphBuilder.TryMerge(root, node, model, model.FoldAngle, model.IdenticalAngle, out _);
                 }
 
@@ -43,17 +43,35 @@ namespace Sir.StringCompare
                         break;
                     }
 
-                    var hit = PathFinder.ClosestMatch(root, model.Tokenize(command).First(), model);
+                    var hit = PathFinder.ClosestMatch(root, model.Tokenize(command.ToCharArray()).First(), model);
 
                     Console.WriteLine($"{hit.Score} {hit.Node}");
                 }
             }
             else
             {
-                var doc1 = new VectorNode(model.Tokenize(args[0]).First());
-                var doc2 = new VectorNode(model.Tokenize(args[1]).First());
+                var token1 = model.Tokenize(args[0].ToCharArray()).First();
+                var token2 = model.Tokenize(args[1].ToCharArray()).First();
+                var doc1 = new VectorNode(token1);
+                var doc2 = new VectorNode(token2);
                 var angle = model.CosAngle(doc1.Vector, doc2.Vector);
-                Console.WriteLine($"similarity: {angle}");
+                
+                Console.WriteLine($"cosine similarity {token1.Data}/{token2.Data}: {angle}");
+
+                var baseVectorStorage = new float[model.VectorWidth];
+
+                for (int i = 0; i < model.VectorWidth; i++)
+                {
+                    baseVectorStorage[i] = i;
+                }
+
+                var baseVector = new IndexedVector(baseVectorStorage);
+                var doc1Angle = (float) model.CosAngle(baseVector, doc1.Vector);
+                var doc2Angle = (float) model.CosAngle(baseVector, doc2.Vector);
+
+                Console.WriteLine($"identity angle {doc1.Vector.Data}: {doc1Angle}");
+                Console.WriteLine($"identity angle {doc2.Vector.Data}: {doc2Angle}");
+                Console.WriteLine($"closeness in {model.VectorWidth}D space: {Math.Min(doc1Angle, doc2Angle) / Math.Max(doc1Angle, doc2Angle)}");
             }
         }
     }

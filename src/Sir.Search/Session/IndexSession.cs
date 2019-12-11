@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 
 namespace Sir.Search
 {
@@ -21,16 +22,15 @@ namespace Sir.Search
         public IStringModel Model { get; }
         public ConcurrentDictionary<long, VectorNode> Index { get; }
 
-        private readonly ILogger<IndexSession> _logger;
-        private readonly VectorNode _lexicon;
+        private long _merges;
+        private readonly ILogger _logger;
 
         public IndexSession(
             ulong collectionId,
             SessionFactory sessionFactory,
             IStringModel model,
-            VectorNode lexicon,
             IConfigurationProvider config,
-            ILogger<IndexSession> logger)
+            ILogger logger)
         {
             _collectionId = collectionId;
             _sessionFactory = sessionFactory;
@@ -40,29 +40,40 @@ namespace Sir.Search
             Model = model;
             Index = new ConcurrentDictionary<long, VectorNode>();
             _logger = logger;
-            _lexicon = lexicon;
         }
 
         public void Put(long docId, long keyId, string value)
         {
-            var tokens = Model.Tokenize(value);
+            var tokens = Model.Tokenize(value.ToCharArray());
+            var column = Index.GetOrAdd(keyId, new VectorNode());
 
             foreach (var token in tokens)
             {
-                var node = new VectorNode(token, docId);
-
-                GraphBuilder.MergeOrAdd(
-                    _lexicon,
-                    node,
+                if (GraphBuilder.MergeOrAdd(
+                    column,
+                    new VectorNode(token, docId),
                     Model,
                     Model.FoldAngle,
-                    Model.IdenticalAngle);
+                    Model.IdenticalAngle))
+                {
+                    _merges++;
+                }
             }
+        }
+
+        public void Put(long docId, IVector vector, VectorNode column)
+        {
+            GraphBuilder.MergeOrAdd(
+                column,
+                new VectorNode(vector, docId),
+                Model,
+                Model.FoldAngle,
+                Model.IdenticalAngle);
         }
 
         public IndexInfo GetIndexInfo()
         {
-            return new IndexInfo(GetGraphInfo());
+            return new IndexInfo(GetGraphInfo(), _merges);
         }
 
         private IEnumerable<GraphInfo> GetGraphInfo()
@@ -90,7 +101,7 @@ namespace Sir.Search
                 {
                     var size = columnWriter.CreatePage(column.Value, _vectorStream, _postingsStream, pageIndexWriter);
 
-                    _logger.LogInformation($"serialized key {column.Key} segment with weight {column.Value.Weight} and size {size}");
+                    _logger.LogInformation($"serialized column {column.Key} weight {column.Value.Weight} {size}");
                 }
             }
 

@@ -1,1 +1,4 @@
-dotnet src\Sir.StringCompare\bin\Debug\netcoreapp2.1\Sir.StringCompare.dll %*
+setlocal
+cd src\Sir.StringCompare\bin\Release\netcoreapp3.0\
+dotnet Sir.StringCompare.dll %*
+endlocal

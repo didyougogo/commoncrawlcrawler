@@ -12,54 +12,67 @@ namespace Sir.Search
         public double IdenticalAngle => 0.9d;
         public double FoldAngle => 0.6d;
         public int VectorWidth => 256;
+        public IVector SortingVector { get; }
 
-        public IEnumerable<IVector> Tokenize(string text)
+        public BocModel()
         {
-            var source = text.ToCharArray();
+            SortingVector = VectorOperations.CreateSortingVector(VectorWidth);
+        }
+
+        public IEnumerable<IVector> Tokenize(Memory<char> text)
+        {
+            if (text.Length == 0)
+                yield break;
+
+            var source = text.ToArray();
             var embedding = new SortedList<int, float>();
             var offset = 0;
             int index = 0;
 
             for (; index < source.Length; index++)
             {
-                char c = source[index];
+                char c = char.ToLower(source[index]);      
 
                 if (c < VectorWidth && char.IsLetter(c))
                 {
-                    embedding.AddOrAppendToComponent(char.ToLower(c), 1);
+                    embedding.AddOrAppendToComponent(c, 1);
                 }
                 else
                 {
                     if (embedding.Count > 0)
                     {
-                        yield return new IndexedVector(
-                                embedding,
-                                text.Substring(offset, index - offset).ToCharArray(),
-                                VectorWidth,
-                                10);
+                        var len = index - offset;
+
+                        if (len<35)
+                            yield return new IndexedVector(
+                                    embedding,
+                                    text.Slice(offset, index - offset),
+                                    VectorWidth);
 
                         embedding = new SortedList<int, float>();
                     }
 
-                    offset = index+1;
+                    offset = index + 1;
                 }
             }
 
             if (embedding.Count > 0)
+            {
                 yield return new IndexedVector(
                         embedding,
-                        text.Substring(index, index - offset).ToCharArray(),
+                        text.Slice(offset, index - offset),
                         VectorWidth);
+            }
         }
 
         public double CosAngle(IVector vec1, IVector vec2)
         {
-            //var dotProduct = vec1.Value.DotProduct(vec2.Value);
-            //var dotSelf1 = vec1.Value.DotProduct(vec1.Value);
-            //var dotSelf2 = vec2.Value.DotProduct(vec2.Value);
-            //return (dotProduct / (Math.Sqrt(dotSelf1) * Math.Sqrt(dotSelf2)));
+            var dotProduct = vec1.Value.DotProduct(vec2.Value);
+            var dotSelf1 = vec1.Value.DotProduct(vec1.Value);
+            var dotSelf2 = vec2.Value.DotProduct(vec2.Value);
+            return (dotProduct / (Math.Sqrt(dotSelf1) * Math.Sqrt(dotSelf2)));
 
-            return vec1.Value.DotProduct(vec2.Value) / (vec1.Value.Norm(2) * vec2.Value.Norm(2));
+            //return vec1.Value.DotProduct(vec2.Value) / (vec1.Value.Norm(2) * vec2.Value.Norm(2));
         }
 
         public double CosAngle(IVector vector, long vectorOffset, int componentCount, Stream vectorStream)

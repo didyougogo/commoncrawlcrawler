@@ -21,14 +21,14 @@ namespace Sir.Search
         private readonly IPostingsReader _postingsReader;
         private readonly ConcurrentDictionary<ulong, DocumentReader> _streamReaders;
         private readonly ConcurrentDictionary<ulong, ConcurrentDictionary<long, INodeReader>> _nodeReaders;
-        private readonly ILogger<ReadSession> _logger;
+        private readonly ILogger _logger;
 
         public ReadSession(
             SessionFactory sessionFactory,
             IConfigurationProvider config,
             IStringModel model,
             IPostingsReader postingsReader,
-            ILogger<ReadSession> logger)
+            ILogger logger)
         {
             _sessionFactory = sessionFactory;
             _config = config;
@@ -104,7 +104,7 @@ namespace Sir.Search
                 foreach (var doc in docs)
                 {
                     var docTerms = new List<Term>();
-                    var tokens = _model.Tokenize((string)doc.Key);
+                    var tokens = _model.Tokenize(((string)doc.Key).ToCharArray());
 
                     foreach (var token in tokens)
                     {

@@ -12,11 +12,17 @@ namespace Sir.Search
         public double IdenticalAngle => 0.999d;
         public double FoldAngle => 0.6d;
         public int VectorWidth => 256;
+        public IVector SortingVector { get; }
 
-        public IEnumerable<IVector> Tokenize(string text)
+        public NGramModel()
+        {
+            SortingVector = VectorOperations.CreateSortingVector(VectorWidth);
+        }
+
+        public IEnumerable<IVector> Tokenize(Memory<char> text)
         {
             const int sampleSize = 8;
-            var source = text.ToCharArray();
+            var source = text.ToArray();
 
             for (int index = 0; index < source.Length; index++)
             {
@@ -35,7 +41,7 @@ namespace Sir.Search
 
                 yield return new IndexedVector(
                         embedding,
-                        text.Substring(index, i).ToCharArray(),
+                        text.Slice(index, i),
                         VectorWidth);
             }
         }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 
@@ -35,7 +36,7 @@ namespace Sir.VectorSpace
             var pages = GetAllPages(
                 Path.Combine(_sessionFactory.Dir, $"{_collectionId}.{KeyId}.ixtp"));
 
-            var hits = new List<Hit>();
+            var hits = new ConcurrentBag<Hit>();
 
             //Parallel.ForEach(pages, page =>
             foreach (var page in pages)
@@ -94,7 +95,7 @@ namespace Sir.VectorSpace
             IVector queryVector,
             Stream indexFile,
             Stream vectorFile,
-            IModel model)
+            IStringModel model)
         {
             Span<byte> block = stackalloc byte[VectorNode.BlockSize];
             var best = new Hit();
@@ -204,6 +205,7 @@ namespace Sir.VectorSpace
         public void Dispose()
         {
             _vectorFile.Dispose();
+            _ixFile.Dispose();
         }
     }
 }

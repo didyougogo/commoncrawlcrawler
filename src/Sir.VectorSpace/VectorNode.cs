@@ -189,7 +189,7 @@ namespace Sir.VectorSpace
 
         public override string ToString()
         {
-            return Vector.ToString();
+            return Vector?.ToString();
         }
 
         public VectorNodeData ToData()

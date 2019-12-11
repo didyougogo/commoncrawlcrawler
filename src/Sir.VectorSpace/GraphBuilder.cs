@@ -202,6 +202,52 @@ namespace Sir.VectorSpace
 
                 if (angle >= identicalAngle)
                 {
+                    AddDocId(cursor, node);
+
+                    return true;
+                }
+                else if (angle > foldAngle)
+                {
+                    if (cursor.Left == null)
+                    {
+                        cursor.Left = node;
+                        return false;
+                    }
+                    else
+                    {
+                        cursor = cursor.Left;
+                    }
+                }
+                else
+                {
+                    if (cursor.Right == null)
+                    {
+                        cursor.Right = node;
+                        return false;
+                    }
+                    else
+                    {
+                        cursor = cursor.Right;
+                    }
+                }
+            }
+        }
+
+        public static bool MergeOrAddConcurrent(
+            VectorNode root,
+            VectorNode node,
+            IDistanceCalculator model,
+            double foldAngle,
+            double identicalAngle)
+        {
+            var cursor = root;
+
+            while (true)
+            {
+                var angle = cursor.Vector == null ? 0 : model.CosAngle(node.Vector, cursor.Vector);
+
+                if (angle >= identicalAngle)
+                {
                     lock (cursor.Sync)
                     {
                         AddDocId(cursor, node);
@@ -310,6 +356,35 @@ namespace Sir.VectorSpace
             stream.Write(MemoryMarshal.Cast<long, byte>(span));
         }
 
+        public static (long offset, long length, int count) SerializeTree(
+            IEnumerable<KeyValuePair<double, VectorNode>> sortedNodes, 
+            Stream indexStream, 
+            Stream vectorStream, 
+            Stream postingsStream)
+        {
+            var length = 0;
+            var offset = indexStream.Position;
+            var count = 0;
+
+            foreach (var node in sortedNodes)
+            {
+                if (node.Value.ComponentCount == 0)
+                    continue;
+
+                if (node.Value.DocIds != null)
+                    SerializePostings(node.Value, postingsStream);
+
+                node.Value.VectorOffset = VectorOperations.SerializeVector(node.Value.Vector, vectorStream);
+
+                SerializeNode(node.Value, indexStream);
+
+                length += VectorNode.BlockSize;
+                count++;
+            }
+
+            return (offset, length, count);
+        }
+
         public static (long offset, long length) SerializeTree(
             VectorNode node, Stream indexStream, Stream vectorStream, Stream postingsStream)
         {
@@ -324,7 +399,7 @@ namespace Sir.VectorSpace
 
             while (node != null)
             {
-                if (node.PostingsOffset == -1)
+                if (node.DocIds != null)
                     SerializePostings(node, postingsStream);
 
                 node.VectorOffset = VectorOperations.SerializeVector(node.Vector, vectorStream);

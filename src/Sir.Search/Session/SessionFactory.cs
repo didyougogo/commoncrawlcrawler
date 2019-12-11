@@ -23,15 +23,13 @@ namespace Sir.Search
         private ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, long>> _keys;
         private readonly ConcurrentDictionary<string, IList<(long offset, long length)>> _pageInfo;
         private readonly ConcurrentDictionary<string, MemoryMappedFile> _mmfs;
-        private ILogger<SessionFactory> _logger;
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly VectorNode _lexicon;
+        private ILogger _logger;
 
         public string Dir { get; }
         public IConfigurationProvider Config { get; }
         public IStringModel Model { get; }
 
-        public SessionFactory(IConfigurationProvider config, IStringModel model, ILoggerFactory loggerFactory)
+        public SessionFactory(IConfigurationProvider config, IStringModel model, ILogger logger)
         {
             var fulltime = Stopwatch.StartNew();
             var time = Stopwatch.StartNew();
@@ -47,8 +45,7 @@ namespace Sir.Search
 
             _pageInfo = new ConcurrentDictionary<string, IList<(long offset, long length)>>();
             _mmfs = new ConcurrentDictionary<string, MemoryMappedFile>();
-            _logger = loggerFactory.CreateLogger<SessionFactory>();
-            _loggerFactory = loggerFactory;
+            _logger = logger;
             _keys = LoadKeys();
 
             _logger.LogInformation($"loaded keys in {time.Elapsed}");
@@ -61,28 +58,9 @@ namespace Sir.Search
 
             time.Restart();
 
-            _lexicon = LoadLexicon();
-
             _logger.LogInformation($"loaded lexicon in {time.Elapsed}");
 
             _logger.LogInformation($"initiated in {fulltime.Elapsed}");
-        }
-
-        private VectorNode LoadLexicon()
-        {
-            var collectionId = "lexicon".ToHash();
-            var ixFileName = Path.Combine(Dir, $"{collectionId}.ix");
-
-            if (File.Exists(ixFileName))
-            {
-                using (var ixStream = CreateReadStream(Path.Combine(Dir, $"{collectionId}.ix")))
-                using (var vecStream = CreateReadStream(Path.Combine(Dir, $"{collectionId}.vec")))
-                {
-                    return GraphBuilder.DeserializeTree(ixStream, vecStream, ixStream.Length, Model);
-                }
-            }
-
-            return new VectorNode();
         }
 
         public MemoryMappedFile OpenMMF(string fileName)
@@ -171,13 +149,14 @@ namespace Sir.Search
             {
                 foreach (var batch in job.Documents.Batch(reportSize))
                 {
-                    Parallel.ForEach(batch, doc =>
-                    //foreach (var doc in batch)
+                    //Parallel.ForEach(batch, doc =>
+                    foreach (var doc in batch)
                     {
                         Train(doc, trainSession, job.IndexedFieldNames);
-                    });
+                    }//);
 
-                    _logger.LogInformation($"processed batch {++batchNo}. lexicon weight {trainSession.Lexicon.Weight}. size {PathFinder.Size(trainSession.Lexicon)}");
+                    _logger.LogInformation(
+                        $"processed batch {++batchNo}. lexicon weight {trainSession.Lexicon.Count}. merges {trainSession.Merges}");
                 }
             }
 
@@ -541,9 +520,8 @@ namespace Sir.Search
                 collectionId, 
                 this, 
                 Model, 
-                _lexicon, 
                 Config, 
-                _loggerFactory.CreateLogger<IndexSession>());
+                _logger);
         }
 
         public TrainSession CreateTrainLexiconSession()
@@ -551,9 +529,8 @@ namespace Sir.Search
             return new TrainSession(
                 this, 
                 Model, 
-                _lexicon, 
                 Config, 
-                _loggerFactory.CreateLogger<TrainSession>());
+                _logger);
         }
 
         public IReadSession CreateReadSession()
@@ -563,7 +540,7 @@ namespace Sir.Search
                 Config,
                 Model,
                 new PostingsReader(this),
-                _loggerFactory.CreateLogger<ReadSession>());
+                _logger);
         }
 
         public ValidateSession CreateValidateSession(ulong collectionId)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Sir.VectorSpace
@@ -19,11 +20,32 @@ namespace Sir.VectorSpace
             Stream postingsStream, 
             PageIndexWriter pageIndexWriter)
         {
-            var page = GraphBuilder.SerializeTree(column, _ixStream, vectorStream, postingsStream);
+            var page = GraphBuilder.SerializeTree(
+                column, 
+                _ixStream, 
+                vectorStream, 
+                postingsStream);
 
             pageIndexWriter.Put(page.offset, page.length);
 
             return PathFinder.Size(column);
+        }
+
+        public (int depth, int width) CreateSortedPage(
+            IEnumerable<KeyValuePair<double,VectorNode>> sortedColumn,
+            Stream vectorStream,
+            Stream postingsStream,
+            PageIndexWriter pageIndexWriter)
+        {
+            var page = GraphBuilder.SerializeTree(
+                sortedColumn, 
+                _ixStream, 
+                vectorStream, 
+                postingsStream);
+
+            pageIndexWriter.Put(page.offset, page.length);
+
+            return (page.count, 0);
         }
 
         public void Dispose()

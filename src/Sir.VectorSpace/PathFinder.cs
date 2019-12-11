@@ -84,6 +84,9 @@ namespace Sir.VectorSpace
 
         public static (int depth, int width) Size(VectorNode root)
         {
+            if (root == null)
+                return (0, 0);
+
             var width = 0;
             var depth = 0;
             var node = root.Right;

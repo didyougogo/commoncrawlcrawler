@@ -8,13 +8,11 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Sir.Core;
 using Sir.Document;
 using Sir.Search;
-
+using Serilog.Sinks.File;
 namespace Sir.DbUtil
 {
     class Program
@@ -27,7 +25,7 @@ namespace Sir.DbUtil
                     .AddFilter("Microsoft", LogLevel.Warning)
                     .AddFilter("System", LogLevel.Warning)
                     .AddFilter("Sir.DbUtil.Program", LogLevel.Debug)
-                    .AddConsole().AddDebug();
+                    .AddConsole();
             });
 
             var logger = loggerFactory.CreateLogger("dbutil");
@@ -57,7 +55,7 @@ namespace Sir.DbUtil
             {
                 var time = Stopwatch.StartNew();
 
-                Validate(args, model, loggerFactory);
+                Validate(args, model, logger);
 
                 logger.LogInformation("validate took {0}", time.Elapsed);
             }
@@ -71,19 +69,19 @@ namespace Sir.DbUtil
             }
             else if (command == "write_wet")
             {
-                WriteWet(args, model, loggerFactory);
+                WriteWet(args, model, logger);
             }
             else if (command == "train_wet")
             {
-                TrainWet(args, model, loggerFactory);
+                TrainWet(args, model, logger);
             }
             else if (command == "truncate")
             {
-                Truncate(args, model, loggerFactory);
+                Truncate(args, model, logger);
             }
             else if (command == "truncate-index")
             {
-                TruncateIndex(args, model, loggerFactory);
+                TruncateIndex(args, model, logger);
             }
             else
             {
@@ -93,7 +91,7 @@ namespace Sir.DbUtil
             logger.LogInformation($"executed {command}");
         }
 
-        private static void WriteWet(string[] args, IStringModel model, ILoggerFactory logger)
+        private static void WriteWet(string[] args, IStringModel model, ILogger logger)
         {
             var fileName = args[1];
             var collectionId = "cc_wet".ToHash();
@@ -115,7 +113,7 @@ namespace Sir.DbUtil
             }
         }
 
-        private static void TrainWet(string[] args, IStringModel model, ILoggerFactory logger)
+        private static void TrainWet(string[] args, IStringModel model, ILogger logger)
         {
             var fileName = args[1];
             var collectionId = "lexicon".ToHash();
@@ -131,7 +129,7 @@ namespace Sir.DbUtil
             {
                 sessionFactory.Truncate(collectionId);
 
-                sessionFactory.Train(writeJob, reportSize: 10);
+                sessionFactory.Train(writeJob, reportSize: 1000);
             }
         }
 
@@ -270,7 +268,7 @@ namespace Sir.DbUtil
 
                 log.LogInformation($"processing {localWatFileName}");
 
-                WriteWatSegment(localWatFileName, collection, model, logger, log, refFileName);
+                WriteWatSegment(localWatFileName, collection, model, log, refFileName);
 
                 //writeTask = Task.Run(
                 //    () => WriteWatSegment(localWatFileName, collection, model, logger, log, refFileName));
@@ -281,8 +279,7 @@ namespace Sir.DbUtil
             string fileName, 
             string collection, 
             IStringModel model, 
-            ILoggerFactory log, 
-            ILogger logger,
+            ILogger log,
             string refFileName)
         {
             var documents = ReadWatFile(fileName, refFileName);
@@ -309,7 +306,7 @@ namespace Sir.DbUtil
                             reportSize:1000);
             }
 
-            logger.LogInformation($"indexed {fileName} in {time.Elapsed}");
+            log.LogInformation($"indexed {fileName} in {time.Elapsed}");
         }
 
         private static IEnumerable<IDictionary<string, object>> ReadWatFile(string fileName, string refFileNae)
@@ -413,7 +410,7 @@ namespace Sir.DbUtil
             }
         }
 
-        private static void Validate(string[] args, IStringModel model, ILoggerFactory log)
+        private static void Validate(string[] args, IStringModel model, ILogger log)
         {
             var collection = args[1];
             var skip = int.Parse(args[2]);
@@ -488,7 +485,7 @@ namespace Sir.DbUtil
             //}
         }
 
-        private static void Truncate(string[] args, IStringModel model, ILoggerFactory log)
+        private static void Truncate(string[] args, IStringModel model, ILogger log)
         {
             var collection = args[1];
             var collectionId = collection.ToHash();
@@ -499,7 +496,7 @@ namespace Sir.DbUtil
             }
         }
 
-        private static void TruncateIndex(string[] args, IStringModel model, ILoggerFactory log)
+        private static void TruncateIndex(string[] args, IStringModel model, ILogger log)
         {
             var collection = args[1];
             var collectionId = collection.ToHash();

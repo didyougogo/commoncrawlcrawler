@@ -16,7 +16,7 @@ namespace Sir.Search
             var sessionFactory = new SessionFactory(
                 config, 
                 model, 
-                loggerFactory);
+                loggerFactory.CreateLogger<SessionFactory>());
 
             var qp = new QueryParser(sessionFactory, model);
 
