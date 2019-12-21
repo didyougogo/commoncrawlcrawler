@@ -9,8 +9,8 @@ namespace Sir.Search
 {
     public class BocModel : IStringModel
     {
-        public double IdenticalAngle => 0.9d;
-        public double FoldAngle => 0.6d;
+        public double IdenticalAngle => 1d;
+        public double FoldAngle => 0.4d;
         public int VectorWidth => 256;
         public IVector SortingVector { get; }
 
@@ -19,50 +19,55 @@ namespace Sir.Search
             SortingVector = VectorOperations.CreateSortingVector(VectorWidth);
         }
 
-        public IEnumerable<IVector> Tokenize(Memory<char> text)
+        public IEnumerable<IVector> Tokenize(Memory<char> source)
         {
-            if (text.Length == 0)
-                yield break;
+            var result = new List<IVector>();
 
-            var source = text.ToArray();
-            var embedding = new SortedList<int, float>();
-            var offset = 0;
-            int index = 0;
-
-            for (; index < source.Length; index++)
+            if (source.Length > 0)
             {
-                char c = char.ToLower(source[index]);      
+                var embedding = new SortedList<int, double>();
+                var offset = 0;
+                int index = 0;
+                var span = source.Span;
 
-                if (c < VectorWidth && char.IsLetter(c))
+                for (; index < source.Length; index++)
                 {
-                    embedding.AddOrAppendToComponent(c, 1);
-                }
-                else
-                {
-                    if (embedding.Count > 0)
+                    char c = char.ToLower(span[index]);
+
+                    if (c < VectorWidth && char.IsLetter(c))
                     {
-                        var len = index - offset;
-
-                        if (len<35)
-                            yield return new IndexedVector(
-                                    embedding,
-                                    text.Slice(offset, index - offset),
-                                    VectorWidth);
-
-                        embedding = new SortedList<int, float>();
+                        embedding.AddOrAppendToComponent(c, 1);
                     }
+                    else
+                    {
+                        if (embedding.Count > 0)
+                        {
+                            //var len = index - offset;
 
-                    offset = index + 1;
+                            //if (len<35)
+                            result.Add(new IndexedVector(
+                                    embedding,
+                                    source.Slice(offset, index - offset),
+                                    VectorWidth));
+
+                            embedding.Clear();
+                            //embedding = new SortedList<int, double>();
+                        }
+
+                        offset = index + 1;
+                    }
+                }
+
+                if (embedding.Count > 0)
+                {
+                    result.Add(new IndexedVector(
+                            embedding,
+                            source.Slice(offset, index - offset),
+                            VectorWidth));
                 }
             }
 
-            if (embedding.Count > 0)
-            {
-                yield return new IndexedVector(
-                        embedding,
-                        text.Slice(offset, index - offset),
-                        VectorWidth);
-            }
+            return result;
         }
 
         public double CosAngle(IVector vec1, IVector vec2)
@@ -77,18 +82,18 @@ namespace Sir.Search
 
         public double CosAngle(IVector vector, long vectorOffset, int componentCount, Stream vectorStream)
         {
-            Span<byte> buf = new byte[componentCount * 2 * sizeof(float)];
+            Span<byte> buf = new byte[componentCount * 2 * sizeof(double)];
 
             vectorStream.Seek(vectorOffset, SeekOrigin.Begin);
             vectorStream.Read(buf);
 
             var index = MemoryMarshal.Cast<byte, int>(buf.Slice(0, componentCount * sizeof(int)));
-            var values = MemoryMarshal.Cast<byte, float>(buf.Slice(componentCount * sizeof(float)));
-            var tuples = new Tuple<int, float>[componentCount];
+            var values = MemoryMarshal.Cast<byte, double>(buf.Slice(componentCount * sizeof(double)));
+            var tuples = new Tuple<int, double>[componentCount];
 
             for (int i = 0; i < componentCount; i++)
             {
-                tuples[i] = new Tuple<int, float>(index[i], values[i]);
+                tuples[i] = new Tuple<int, double>(index[i], values[i]);
             }
 
             var otherVector = CreateVector.SparseOfIndexed(VectorWidth, tuples);

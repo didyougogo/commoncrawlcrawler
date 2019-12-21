@@ -19,11 +19,13 @@ namespace Sir.Search
     /// </summary>
     public class SessionFactory : IDisposable, ISessionFactory
     {
+        private readonly ConcurrentDictionary<string, MemoryMappedFile> _mmfs;
+
         private ConcurrentDictionary<ulong, ulong> _collectionAliases;
         private ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, long>> _keys;
-        private readonly ConcurrentDictionary<string, IList<(long offset, long length)>> _pageInfo;
-        private readonly ConcurrentDictionary<string, MemoryMappedFile> _mmfs;
-        private ILogger _logger;
+        private SortedList<double, VectorNode> _lexicon;
+
+        private readonly ILogger _logger;
 
         public string Dir { get; }
         public IConfigurationProvider Config { get; }
@@ -31,7 +33,6 @@ namespace Sir.Search
 
         public SessionFactory(IConfigurationProvider config, IStringModel model, ILogger logger)
         {
-            var fulltime = Stopwatch.StartNew();
             var time = Stopwatch.StartNew();
 
             Dir = config.Get("data_dir");
@@ -43,7 +44,6 @@ namespace Sir.Search
                 Directory.CreateDirectory(Dir);
             }
 
-            _pageInfo = new ConcurrentDictionary<string, IList<(long offset, long length)>>();
             _mmfs = new ConcurrentDictionary<string, MemoryMappedFile>();
             _logger = logger;
             _keys = LoadKeys();
@@ -58,9 +58,72 @@ namespace Sir.Search
 
             time.Restart();
 
+            _lexicon = LoadLexicon();
+
             _logger.LogInformation($"loaded lexicon in {time.Elapsed}");
 
-            _logger.LogInformation($"initiated in {fulltime.Elapsed}");
+            _logger.LogInformation($"initiated");
+        }
+
+        public IEnumerable<IVector> CreateDocumentEmbeddings(
+            IEnumerable<IVector> tokens,
+            IStringModel model)
+        {
+            var bufIndex = 0;
+            var buf = new double[2];
+            //var debug = new string[2];
+            var count = 0;
+
+            foreach (var token in tokens)
+            {
+                var angle = model.CosAngle(model.SortingVector, token);
+
+                if (bufIndex == 2)
+                {
+                    yield return new IndexedVector(
+                        new double[2] { buf[0], angle },
+                        model.VectorWidth);
+
+                    //_logger.LogInformation($"{debug[0]}{token.Data}");
+
+                    buf[0] = buf[1];
+                    buf[1] = angle;
+
+                    //debug[0] = debug[1];
+                    //debug[1] = token.Data.ToString();
+                }
+                else
+                {
+                    buf[bufIndex] = angle;
+
+                    //debug[bufIndex] = token.Data.ToString();
+
+                    bufIndex++;
+                }
+
+                count++;
+            }
+
+            if (count == 2) 
+            {
+                yield return new IndexedVector(
+                        new double[2] { buf[0], 0 },
+                        model.VectorWidth);
+
+                yield return new IndexedVector(
+                        new double[2] { buf[1], 0 },
+                        model.VectorWidth);
+
+                //_logger.LogInformation($"{debug[0]}{token.Data}");
+            }
+            else if (count == 1)
+            {
+                yield return new IndexedVector(
+                        new double[2] { buf[0], 0 },
+                        model.VectorWidth);
+
+                //_logger.LogInformation($"{debug[0]}{token.Data}");
+            }
         }
 
         public MemoryMappedFile OpenMMF(string fileName)
@@ -103,8 +166,6 @@ namespace Sir.Search
                 count++;
             }
 
-            _pageInfo.Clear();
-
             _keys.Clear();
 
             _logger.LogInformation($"truncated collection {collectionId} ({count} files)");
@@ -136,8 +197,23 @@ namespace Sir.Search
             }
 
             _logger.LogInformation($"truncated index {collectionId} ({count} files)");
+        }
 
-            _pageInfo.Clear();
+        private SortedList<double, VectorNode> LoadLexicon()
+        {
+            var collectionId = "lexicon".ToHash();
+            var ixFileName = Path.Combine(Dir, $"{collectionId}.ix");
+
+            if (File.Exists(ixFileName))
+            {
+                using (var ixStream = CreateReadStream(Path.Combine(Dir, $"{collectionId}.ix")))
+                using (var vecStream = CreateReadStream(Path.Combine(Dir, $"{collectionId}.vec")))
+                {
+                    return GraphBuilder.DeserializeSortedList(ixStream, vecStream, Model);
+                }
+            }
+
+            return new SortedList<double, VectorNode>();
         }
 
         public void Train(Job job, int reportSize)
@@ -149,14 +225,14 @@ namespace Sir.Search
             {
                 foreach (var batch in job.Documents.Batch(reportSize))
                 {
-                    //Parallel.ForEach(batch, doc =>
-                    foreach (var doc in batch)
+                    Parallel.ForEach(batch, doc =>
+                    //foreach (var doc in batch)
                     {
                         Train(doc, trainSession, job.IndexedFieldNames);
-                    }//);
+                    });
 
                     _logger.LogInformation(
-                        $"processed batch {++batchNo}. lexicon weight {trainSession.Lexicon.Count}. merges {trainSession.Merges}");
+                        $"trained batch {++batchNo}. lexicon weight {trainSession.Space.Count}. merges {trainSession.Merges}");
                 }
             }
 
@@ -165,13 +241,14 @@ namespace Sir.Search
 
         public void Train(IDictionary<string, object> document, TrainSession trainSession, HashSet<string> trainingFieldNames)
         {
-            foreach (var kv in document)
+            Parallel.ForEach(document, kv =>
+            //foreach (var kv in document)
             {
                 if (trainingFieldNames.Contains(kv.Key) && kv.Value != null)
                 {
                     trainSession.Put((string)kv.Value);
                 }
-            }
+            });
         }
 
         public IEnumerable<IDictionary<string, object>> WriteOnly(Job job, WriteSession writeSession)
@@ -221,13 +298,13 @@ namespace Sir.Search
             var time = Stopwatch.StartNew();
             var docCount = 0;
 
-            Parallel.ForEach(WriteOnly(job, writeSession), document=>
-            //foreach (var document in WriteOnly(job, writeSession))
+            //Parallel.ForEach(WriteOnly(job, writeSession), document=>
+            foreach (var document in WriteOnly(job, writeSession))
             {
                 IndexOnly(document, indexSession, job.IndexedFieldNames);
 
                 docCount++;
-            });
+            }//);
 
             _logger.LogInformation($"writing job consisting of {docCount} documents {job.CollectionId} took {time.Elapsed}.");
 
@@ -324,26 +401,11 @@ namespace Sir.Search
                    4096, FileOptions.RandomAccess | FileOptions.DeleteOnClose);
         }
 
-        public void ClearPageInfo()
-        {
-            _pageInfo.Clear();
-        }
-
-        public IList<(long offset, long length)> GetAllPages(string pageFileName)
-        {
-            return _pageInfo.GetOrAdd(pageFileName, key =>
-            {
-                using (var ixpStream = CreateReadStream(key))
-                {
-                    return new PageIndexReader(ixpStream).GetAll();
-                }
-            });
-        }
-
         public void Refresh()
         {
             _keys = LoadKeys();
             _collectionAliases = LoadCollectionAliases();
+            _lexicon = LoadLexicon();
         }
 
         public ConcurrentDictionary<ulong, ulong> LoadCollectionAliases()
@@ -410,7 +472,7 @@ namespace Sir.Search
 
         public void RegisterKeyMapping(ulong collectionId, ulong keyHash, long keyId)
         {
-            var fileName = Path.Combine(Dir, string.Format("{0}.kmap", collectionId));
+            var fileName = string.Format("{0}.kmap", collectionId);
             ConcurrentDictionary<ulong, long> keys;
 
             if (!_keys.TryGetValue(collectionId, out keys))
@@ -436,7 +498,7 @@ namespace Sir.Search
             {
                 _collectionAliases.GetOrAdd(collectionId, originalCollectionId);
 
-                var fileName = Path.Combine(Dir, "aliases.cmap");
+                var fileName = "aliases.cmap";
 
                 using (var stream = CreateAppendStream(fileName))
                 {
@@ -524,13 +586,26 @@ namespace Sir.Search
                 _logger);
         }
 
+        public PrecomputedIndexSession CreatePrecomputedIndexSession(ulong collectionId)
+        {
+            return new PrecomputedIndexSession(
+                collectionId,
+                this,
+                Model,
+                Config,
+                _logger,
+                _lexicon);
+        }
+
         public TrainSession CreateTrainLexiconSession()
         {
             return new TrainSession(
+                "lexicon".ToHash(),
                 this, 
                 Model, 
                 Config, 
-                _logger);
+                _logger,
+                _lexicon);
         }
 
         public IReadSession CreateReadSession()
@@ -555,33 +630,67 @@ namespace Sir.Search
 
         public Stream CreateAsyncReadStream(string fileName, int bufferSize = 4096)
         {
-            return File.Exists(fileName)
-            ? new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize, FileOptions.Asynchronous)
+            var abs = GetAbsolutePath(fileName);
+
+            return File.Exists(abs)
+            ? new FileStream(
+                abs, 
+                FileMode.Open, 
+                FileAccess.Read, 
+                FileShare.ReadWrite, 
+                bufferSize, 
+                FileOptions.Asynchronous)
             : null;
         }
 
         public Stream CreateReadStream(string fileName, int bufferSize = 4096, FileOptions fileOptions = FileOptions.RandomAccess)
         {
-            return File.Exists(fileName)
-                ? new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize, fileOptions)
+            var abs = GetAbsolutePath(fileName);
+
+            return File.Exists(abs)
+                ? new FileStream(
+                    abs, 
+                    FileMode.Open, 
+                    FileAccess.Read, 
+                    FileShare.ReadWrite, 
+                    bufferSize, 
+                    fileOptions)
                 : null;
         }
 
         public Stream CreateAsyncAppendStream(string fileName, int bufferSize = 4096)
         {
-            return new FileStream(fileName, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, bufferSize, FileOptions.Asynchronous);
+            var abs = GetAbsolutePath(fileName);
+
+            return new FileStream(
+                abs, 
+                FileMode.Append, 
+                FileAccess.Write, 
+                FileShare.ReadWrite, 
+                bufferSize, 
+                FileOptions.Asynchronous);
         }
 
         public Stream CreateAppendStream(string fileName, int bufferSize = 4096)
         {
-            if (!File.Exists(fileName))
+            var abs = GetAbsolutePath(fileName);
+
+            if (!File.Exists(abs))
             {
-                using (var fs = new FileStream(fileName, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, bufferSize))
-                {
-                }
+                using (var fs = new FileStream(
+                    abs, 
+                    FileMode.Append, 
+                    FileAccess.Write, 
+                    FileShare.ReadWrite, 
+                    bufferSize)) {}
             }
 
-            return new FileStream(fileName, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, bufferSize);
+            return new FileStream(abs, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, bufferSize);
+        }
+
+        private string GetAbsolutePath(string fileName)
+        {
+            return Path.Combine(Dir, fileName);
         }
 
         public bool CollectionExists(ulong collectionId)

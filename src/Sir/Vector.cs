@@ -10,15 +10,15 @@ namespace Sir
     public class IndexedVector : IVector
     {
         public ReadOnlyMemory<char>? Data { get; }
-        public Vector<float> Value { get; private set; }
+        public Vector<double> Value { get; private set; }
         public int ComponentCount { get; }
 
         public IndexedVector(
-            SortedList<int, float> dictionary, 
+            SortedList<int, double> dictionary, 
             ReadOnlyMemory<char> data, 
             int vectorWidth)
         {
-            var tuples = new Tuple<int, float>[Math.Min(dictionary.Count, vectorWidth)];
+            var tuples = new Tuple<int, double>[Math.Min(dictionary.Count, vectorWidth)];
             var i = 0;
 
             foreach (var p in dictionary)
@@ -26,22 +26,22 @@ namespace Sir
                 if (i == ( vectorWidth))
                     break;
 
-                tuples[i++] = new Tuple<int, float>(p.Key, p.Value);
+                tuples[i++] = new Tuple<int, double>(p.Key, p.Value);
             }
 
             Value = CreateVector.Sparse(
-                SparseVectorStorage<float>.OfIndexedEnumerable(vectorWidth, tuples));
+                SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
 
             ComponentCount = tuples.Length;
             Data = data;
         }
 
         public IndexedVector(
-            IList<float> values,
+            IList<double> values,
             ReadOnlyMemory<char> data,
             int vectorWidth)
         {
-            var tuples = new Tuple<int, float>[Math.Min(values.Count, vectorWidth)];
+            var tuples = new Tuple<int, double>[Math.Min(values.Count, vectorWidth)];
             var i = 0;
 
             foreach (var x in values)
@@ -49,48 +49,71 @@ namespace Sir
                 if (i == (vectorWidth))
                     break;
 
-                tuples[i] = new Tuple<int, float>(i, x);
+                tuples[i] = new Tuple<int, double>(i, x);
 
                 i++;
             }
 
             Value = CreateVector.Sparse(
-                SparseVectorStorage<float>.OfIndexedEnumerable(vectorWidth, tuples));
+                SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
 
             ComponentCount = tuples.Length;
             Data = data;
         }
 
-        public IndexedVector(int[] index, float[] values, int vectorWidth)
+        public IndexedVector(
+            IList<double> values,
+            int vectorWidth)
         {
-            var tuples = new Tuple<int, float>[Math.Min(index.Length, vectorWidth)];
+            var tuples = new Tuple<int, double>[Math.Min(values.Count, vectorWidth)];
+            var i = 0;
+
+            foreach (var x in values)
+            {
+                if (i == (vectorWidth))
+                    break;
+
+                tuples[i] = new Tuple<int, double>(i, x);
+
+                i++;
+            }
+
+            Value = CreateVector.Sparse(
+                SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
+
+            ComponentCount = tuples.Length;
+        }
+
+        public IndexedVector(int[] index, double[] values, int vectorWidth)
+        {
+            var tuples = new Tuple<int, double>[Math.Min(index.Length, vectorWidth)];
 
             for (int i = 0; i < index.Length; i++)
             {
                 if (i == vectorWidth)
                     break;
 
-                tuples[i] = new Tuple<int, float>(index[i], values[i]);
+                tuples[i] = new Tuple<int, double>(index[i], values[i]);
             }
 
             Value = CreateVector.Sparse(
-                SparseVectorStorage<float>.OfIndexedEnumerable(vectorWidth, tuples));
+                SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
 
             ComponentCount = tuples.Length;
         }
 
-        public IndexedVector(Tuple<int, float>[] tuples, int vectorWidth)
+        public IndexedVector(Tuple<int, double>[] tuples, int vectorWidth)
         {
             Value = CreateVector.Sparse(
-                SparseVectorStorage<float>.OfIndexedEnumerable(vectorWidth, tuples));
+                SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
 
             ComponentCount = tuples.Length;
         }
 
-        public IndexedVector(Vector<float> vector)
+        public IndexedVector(Vector<double> vector)
         {
             Value = vector;
-            ComponentCount = ((SparseVectorStorage<float>)Value.Storage).Length;
+            ComponentCount = ((SparseVectorStorage<double>)Value.Storage).Length;
         }
 
         public IndexedVector(IEnumerable<IVector> vectors)
@@ -103,21 +126,27 @@ namespace Sir
                     Value.Add(vector.Value);
             }
 
-            ComponentCount = ((SparseVectorStorage<float>)Value.Storage).Length;
+            ComponentCount = ((SparseVectorStorage<double>)Value.Storage).Length;
         }
 
-        public IndexedVector(float[] vector)
+        public IndexedVector(double[] vector, ReadOnlyMemory<char>? data = null)
         {
             Value = CreateVector.Sparse(
-                SparseVectorStorage<float>.OfEnumerable(vector));
+                SparseVectorStorage<double>.OfEnumerable(vector));
 
-            ComponentCount = ((SparseVectorStorage<float>)Value.Storage).Length;
+            ComponentCount = ((SparseVectorStorage<double>)Value.Storage).Length;
+
+            Data = data;
         }
 
-        public void Serialize(Stream stream)
+        public long Serialize(Stream stream)
         {
-            stream.Write(MemoryMarshal.Cast<int, byte>(((SparseVectorStorage<float>)Value.Storage).Indices));
-            stream.Write(MemoryMarshal.Cast<float, byte>(((SparseVectorStorage<float>)Value.Storage).Values));
+            var offset = stream.Position;
+
+            stream.Write(MemoryMarshal.Cast<int, byte>(((SparseVectorStorage<double>)Value.Storage).Indices));
+            stream.Write(MemoryMarshal.Cast<double, byte>(((SparseVectorStorage<double>)Value.Storage).Values));
+
+            return offset;
         }
 
         public override string ToString()
@@ -128,8 +157,8 @@ namespace Sir
 
     public interface IVector
     {
-        Vector<float> Value { get; }
-        void Serialize(Stream stream);
+        Vector<double> Value { get; }
+        long Serialize(Stream stream);
         int ComponentCount { get; }
         ReadOnlyMemory<char>? Data { get; }
     }

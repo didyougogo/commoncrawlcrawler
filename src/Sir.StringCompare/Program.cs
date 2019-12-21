@@ -58,7 +58,7 @@ namespace Sir.StringCompare
                 
                 Console.WriteLine($"cosine similarity {token1.Data}/{token2.Data}: {angle}");
 
-                var baseVectorStorage = new float[model.VectorWidth];
+                var baseVectorStorage = new double[model.VectorWidth];
 
                 for (int i = 0; i < model.VectorWidth; i++)
                 {
@@ -66,8 +66,8 @@ namespace Sir.StringCompare
                 }
 
                 var baseVector = new IndexedVector(baseVectorStorage);
-                var doc1Angle = (float) model.CosAngle(baseVector, doc1.Vector);
-                var doc2Angle = (float) model.CosAngle(baseVector, doc2.Vector);
+                var doc1Angle = model.CosAngle(baseVector, doc1.Vector);
+                var doc2Angle = model.CosAngle(baseVector, doc2.Vector);
 
                 Console.WriteLine($"identity angle {doc1.Vector.Data}: {doc1Angle}");
                 Console.WriteLine($"identity angle {doc2.Vector.Data}: {doc2Angle}");

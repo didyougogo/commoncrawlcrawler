@@ -233,6 +233,50 @@ namespace Sir.VectorSpace
             }
         }
 
+        public static bool Put(
+            VectorNode root,
+            VectorNode node,
+            IDistanceCalculator model,
+            double foldAngle,
+            double identicalAngle)
+        {
+            var cursor = root;
+
+            while (true)
+            {
+                var angle = cursor.Vector == null ? 0 : model.CosAngle(node.Vector, cursor.Vector);
+
+                if (angle >= identicalAngle)
+                {
+                    return false;
+                }
+                else if (angle > foldAngle)
+                {
+                    if (cursor.Left == null)
+                    {
+                        cursor.Left = node;
+                        return true;
+                    }
+                    else
+                    {
+                        cursor = cursor.Left;
+                    }
+                }
+                else
+                {
+                    if (cursor.Right == null)
+                    {
+                        cursor.Right = node;
+                        return true;
+                    }
+                    else
+                    {
+                        cursor = cursor.Right;
+                    }
+                }
+            }
+        }
+
         public static bool MergeOrAddConcurrent(
             VectorNode root,
             VectorNode node,
@@ -313,7 +357,7 @@ namespace Sir.VectorSpace
             target.DocIds.Add(docId);
         }
 
-        public static void AddDocId(VectorNode target, VectorNode node)
+        public static void AddDocId(VectorNode target, VectorNode node) 
         {
             if (node.DocIds != null)
             {
@@ -324,7 +368,14 @@ namespace Sir.VectorSpace
             }
         }
 
-        public static void SerializeNode(VectorNode node, Stream stream)
+        public static void SerializeAngleAndVectorOffset(double angle, VectorNode node, Stream stream)
+        {
+            stream.Write(BitConverter.GetBytes(node.VectorOffset));
+            stream.Write(BitConverter.GetBytes(node.VectorOffset));
+            stream.Write(BitConverter.GetBytes(node.ComponentCount));
+        }
+
+        public static void SerializeNode(VectorNode node, Stream stream) 
         {
             long terminator = 1;
 
@@ -356,11 +407,10 @@ namespace Sir.VectorSpace
             stream.Write(MemoryMarshal.Cast<long, byte>(span));
         }
 
-        public static (long offset, long length, int count) SerializeTree(
-            IEnumerable<KeyValuePair<double, VectorNode>> sortedNodes, 
+        public static (long offset, long length, int count) SerializeSortedList(
+            SortedList<double, VectorNode> sortedNodes, 
             Stream indexStream, 
-            Stream vectorStream, 
-            Stream postingsStream)
+            Stream vectorStream) 
         {
             var length = 0;
             var offset = indexStream.Position;
@@ -371,12 +421,9 @@ namespace Sir.VectorSpace
                 if (node.Value.ComponentCount == 0)
                     continue;
 
-                if (node.Value.DocIds != null)
-                    SerializePostings(node.Value, postingsStream);
+                node.Value.VectorOffset = node.Value.Vector.Serialize(vectorStream);
 
-                node.Value.VectorOffset = VectorOperations.SerializeVector(node.Value.Vector, vectorStream);
-
-                SerializeNode(node.Value, indexStream);
+                SerializeAngleAndVectorOffset(node.Key, node.Value, indexStream);
 
                 length += VectorNode.BlockSize;
                 count++;
@@ -466,7 +513,7 @@ namespace Sir.VectorSpace
             long weight,
             long terminator,
             Stream vectorStream,
-            IVectorSpaceConfig model)
+            IVectorSpaceConfig model) 
         {
             var vector = VectorOperations.DeserializeVector(vecOffset, (int)componentCount, model.VectorWidth, vectorStream);
             var node = new VectorNode(postingsOffset, vecOffset, terminator, weight, vector);
@@ -480,7 +527,7 @@ namespace Sir.VectorSpace
             VectorNode root,
             float identicalAngle, 
             float foldAngle,
-            IModel model)
+            IModel model) 
         {
             var buf = new byte[VectorNode.BlockSize];
             int read = indexStream.Read(buf);
@@ -499,13 +546,39 @@ namespace Sir.VectorSpace
             }
         }
 
+        public static SortedList<double, VectorNode> DeserializeSortedList(
+            Stream indexStream,
+            Stream vectorStream,
+            IModel model)
+        {
+            const int blockSize = sizeof(double) + sizeof(long) + sizeof(long);
+            var result = new SortedList<double, VectorNode>();
+            var buf = new byte[blockSize];
+            int read = indexStream.Read(buf);
+
+            while (read == blockSize)
+            {
+                var angle = BitConverter.ToDouble(buf, 0);
+                var vectorOffset = BitConverter.ToInt64(buf, sizeof(double));
+                var componentCount = (int)BitConverter.ToInt64(buf, sizeof(double) + sizeof(long));
+                var vector = VectorOperations.DeserializeVector(
+                    vectorOffset, componentCount, model.VectorWidth, vectorStream);
+
+                result.Add(angle, new VectorNode(vector));
+
+                read = indexStream.Read(buf);
+            }
+
+            return result;
+        }
+
         public static void DeserializeTree(
             Stream indexStream,
             Stream vectorStream,
             long indexLength,
             VectorNode root,
             (float identicalAngle, float foldAngle) similarity,
-            IModel model)
+            IModel model) 
         {
             int read = 0;
             var buf = new byte[VectorNode.BlockSize];

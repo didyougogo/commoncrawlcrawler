@@ -11,7 +11,7 @@ namespace Sir.Search
     /// <summary>
     /// Indexing session targeting a single collection.
     /// </summary>
-    public class IndexSession : IDisposable
+    public class PrecomputedIndexSession : IDisposable
     {
         private readonly ulong _collectionId;
         private readonly SessionFactory _sessionFactory;
@@ -24,13 +24,15 @@ namespace Sir.Search
 
         private long _merges;
         private readonly ILogger _logger;
+        private readonly SortedList<double, VectorNode> _lexicon;
 
-        public IndexSession(
+        public PrecomputedIndexSession(
             ulong collectionId,
             SessionFactory sessionFactory,
             IStringModel model,
             IConfigurationProvider config,
-            ILogger logger)
+            ILogger logger,
+            SortedList<double, VectorNode> lexicon)
         {
             _collectionId = collectionId;
             _sessionFactory = sessionFactory;
@@ -40,6 +42,7 @@ namespace Sir.Search
             Model = model;
             Index = new ConcurrentDictionary<long, VectorNode>();
             _logger = logger;
+            _lexicon = lexicon;
         }
 
         public void Put(long docId, long keyId, string value)

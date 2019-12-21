@@ -31,21 +31,19 @@ namespace Sir.VectorSpace
             return PathFinder.Size(column);
         }
 
-        public (int depth, int width) CreateSortedPage(
-            IEnumerable<KeyValuePair<double,VectorNode>> sortedColumn,
+        public int CreateSortedPage(
+            SortedList<double,VectorNode> sortedColumn,
             Stream vectorStream,
-            Stream postingsStream,
             PageIndexWriter pageIndexWriter)
         {
-            var page = GraphBuilder.SerializeTree(
+            var page = GraphBuilder.SerializeSortedList(
                 sortedColumn, 
                 _ixStream, 
-                vectorStream, 
-                postingsStream);
+                vectorStream);
 
             pageIndexWriter.Put(page.offset, page.length);
 
-            return (page.count, 0);
+            return page.count;
         }
 
         public void Dispose()

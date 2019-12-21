@@ -13,11 +13,11 @@ namespace Sir.VectorSpace
     {
         public static IVector CreateSortingVector(int width)
         {
-            var storage = new float[width];
+            var storage = new double[width];
 
             for (int i = 0; i < width; i++)
             {
-                storage[i] = (float)Math.Log(1+i);
+                storage[i] = Math.Log(1+i);
             }
 
             return new IndexedVector(storage);
@@ -32,7 +32,7 @@ namespace Sir.VectorSpace
             }
 
             var index = new int[componentCount];
-            var values = new float[componentCount];
+            var values = new double[componentCount];
 
             var read = vectorView.ReadArray(vectorOffset, index, 0, index.Length);
 
@@ -49,18 +49,18 @@ namespace Sir.VectorSpace
 
         public static IVector DeserializeVector(long vectorOffset, int componentCount, int vectorWidth, Stream vectorStream)
         {
-            Span<byte> buf = new byte[componentCount * 2 * sizeof(float)];
+            Span<byte> buf = new byte[componentCount * 2 * sizeof(double)];
 
             vectorStream.Seek(vectorOffset, SeekOrigin.Begin);
             vectorStream.Read(buf);
 
             var index = MemoryMarshal.Cast<byte, int>(buf.Slice(0, componentCount * sizeof(int)));
-            var values = MemoryMarshal.Cast<byte, float>(buf.Slice(componentCount * sizeof(float)));
-            var tuples = new Tuple<int, float>[componentCount];
+            var values = MemoryMarshal.Cast<byte, double>(buf.Slice(componentCount * sizeof(double)));
+            var tuples = new Tuple<int, double>[componentCount];
 
             for (int i = 0; i < componentCount; i++)
             {
-                tuples[i] = new Tuple<int, float>(index[i], values[i]);
+                tuples[i] = new Tuple<int, double>(index[i], values[i]);
             }
 
             return new IndexedVector(tuples, vectorWidth);
@@ -68,20 +68,16 @@ namespace Sir.VectorSpace
 
         public static long SerializeVector(IVector vector, Stream vectorStream)
         {
-            var pos = vectorStream.Position;
-
-            vector.Serialize(vectorStream);
-
-            return pos;
+            return vector.Serialize(vectorStream);
         }
 
-        public static float CosAngle(this SortedList<long, int> vec1, SortedList<long, int> vec2)
+        public static double CosAngle(this SortedList<long, int> vec1, SortedList<long, int> vec2)
         {
             long dotProduct = Dot(vec1, vec2);
             long dotSelf1 = vec1.DotSelf();
             long dotSelf2 = vec2.DotSelf();
 
-            return (float)(dotProduct / (Math.Sqrt(dotSelf1) * Math.Sqrt(dotSelf2)));
+            return (double)(dotProduct / (Math.Sqrt(dotSelf1) * Math.Sqrt(dotSelf2)));
         }
 
         public static long Dot(this SortedList<long, int> vec1, SortedList<long, int> vec2)
@@ -159,23 +155,19 @@ namespace Sir.VectorSpace
             return result;
         }
 
-        public static void AddOrAppendToComponent(this SortedList<int, float> vec, int key, float value)
+        public static void AddOrAppendToComponent(this SortedList<int, double> vec, int key, double value)
         {
-            float v;
+            double v;
 
             if (vec.TryGetValue(key, out v))
             {
-                if (Math.Abs(v) < 10)
-                    vec[key] = v * (1 + value);
+                vec[key] = v * (1 + value);
             }
             else
             {
-                var x = (float)Math.Sqrt(Math.Log(key));
+                var x = Math.Log(Math.Sqrt(key));
 
-                if (vec.Count == 0)
-                    v = value * x;
-                else
-                   v = 1 - ((float)Math.Log(1 + (value * x * vec.Count)));
+                v = Math.Log(1 + (value/(1+vec.Count)) * x);
 
                 vec.Add(key, v);
             }

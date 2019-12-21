@@ -5,8 +5,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,31 +18,31 @@ namespace Sir.Search
         private readonly ulong _collectionId;
         private readonly SessionFactory _sessionFactory;
         private readonly IConfigurationProvider _config;
-        private readonly Stream _postingsStream;
         private readonly Stream _vectorStream;
         private readonly IStringModel _model;
         private readonly ILogger _logger;
         private bool _flushed;
-        public int _merges;
+        private int _merges;
 
         public int Merges { get { return _merges; } }
 
-        public ConcurrentDictionary<double, VectorNode> Lexicon { get; }
+        public ConcurrentDictionary<double, VectorNode> Space { get; }
 
         public TrainSession(
+            ulong collectionId,
             SessionFactory sessionFactory,
             IStringModel model,
             IConfigurationProvider config,
-            ILogger logger)
+            ILogger logger,
+            SortedList<double, VectorNode> space)
         {
-            _collectionId = "lexicon".ToHash();
+            _collectionId = collectionId;
             _sessionFactory = sessionFactory;
             _config = config;
-            _postingsStream = sessionFactory.CreateAppendStream(Path.Combine(sessionFactory.Dir, $"{_collectionId}.pos"));
-            _vectorStream = sessionFactory.CreateAppendStream(Path.Combine(sessionFactory.Dir, $"{_collectionId}.vec"));
+            _vectorStream = sessionFactory.CreateAppendStream($"{_collectionId}.vec");
             _model = model;
             _logger = logger;
-            Lexicon = new ConcurrentDictionary<double, VectorNode>();
+            Space = new ConcurrentDictionary<double, VectorNode>(space);
         }
 
         public void Put(string value)
@@ -56,7 +54,7 @@ namespace Sir.Search
             {
                 var angle = _model.CosAngle(_model.SortingVector, token);
 
-                if (!Lexicon.TryAdd(angle, new VectorNode(token)))
+                if (!Space.TryAdd(angle, new VectorNode(token)))
                 {
                     Interlocked.Increment(ref _merges);
                 }
@@ -72,23 +70,23 @@ namespace Sir.Search
 
             var time = Stopwatch.StartNew();
 
-            using (var indexStream = _sessionFactory.CreateAppendStream(Path.Combine(_sessionFactory.Dir, $"{_collectionId}.ix")))
+            using (var indexStream = _sessionFactory.CreateAppendStream($"{_collectionId}.ix"))
             using (var columnWriter = new ColumnWriter(indexStream))
-            using (var pageIndexWriter = new PageIndexWriter(_sessionFactory.CreateAppendStream(Path.Combine(_sessionFactory.Dir, $"{_collectionId}.ixtp"))))
+            using (var pageIndexWriter = new PageIndexWriter(_sessionFactory.CreateAppendStream($"{_collectionId}.ixtp")))
             {
-                var sorted = new SortedList<double, VectorNode>(Lexicon);
+                var sorted = new SortedList<double, VectorNode>(Space);
 
                 _logger.LogInformation($"sorted list of angles in {time.Elapsed}");
 
                 time.Restart();
 
-                var size = columnWriter.CreateSortedPage(sorted, _vectorStream, _postingsStream, pageIndexWriter);
+                var size = columnWriter.CreateSortedPage(sorted, _vectorStream, pageIndexWriter);
 
                 time.Stop();
 
                 File.WriteAllText("train.log", $"{sorted.Count} sorted words\r\n{string.Join("\r\n", sorted)}");
 
-                _logger.LogInformation($"serialized lexicon segment with node count {size.depth} in {time.Elapsed}");
+                _logger.LogInformation($"serialized lexicon segment with size {size} in {time.Elapsed}");
             }
         }
 
@@ -97,7 +95,6 @@ namespace Sir.Search
             if (!_flushed)
                 Flush();
 
-            _postingsStream.Dispose();
             _vectorStream.Dispose();
         }
     }

@@ -25,7 +25,8 @@ namespace Sir.DbUtil
                     .AddFilter("Microsoft", LogLevel.Warning)
                     .AddFilter("System", LogLevel.Warning)
                     .AddFilter("Sir.DbUtil.Program", LogLevel.Debug)
-                    .AddConsole();
+                    .AddConsole()
+                    .AddDebug();
             });
 
             var logger = loggerFactory.CreateLogger("dbutil");
@@ -65,6 +66,8 @@ namespace Sir.DbUtil
             }
             else if (command == "download_wat")
             {
+                // E.g. download_wat CC-MAIN-2019-43 C:\\Users\\marlag\\Downloads\\ cc_wat 1
+
                 DownloadAndIndexWat(args, model, loggerFactory, logger);
             }
             else if (command == "write_wet")
