@@ -76,7 +76,7 @@ namespace Sir.Search
             {
                 var sorted = new SortedList<double, VectorNode>(Space);
 
-                _logger.LogInformation($"sorted list of angles in {time.Elapsed}");
+                _logger.LogInformation($"sorted angles in {time.Elapsed}");
 
                 time.Restart();
 
