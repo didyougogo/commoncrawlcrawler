@@ -158,6 +158,11 @@ namespace Sir.Search
 
         public void Truncate(ulong collectionId)
         {
+            if ("lexicon".ToHash() == collectionId)
+            {
+                _lexicon.Clear();
+            }
+
             var count = 0;
 
             foreach (var file in Directory.GetFiles(Dir, $"{collectionId}*"))
@@ -232,7 +237,7 @@ namespace Sir.Search
                     });
 
                     _logger.LogInformation(
-                        $"trained batch {++batchNo}. lexicon weight {trainSession.Space.Count}. merges {trainSession.Merges}");
+                        $"trained batch {++batchNo}. weight {trainSession.Space.Count}. merges {trainSession.Merges}");
                 }
             }
 

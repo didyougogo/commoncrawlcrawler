@@ -161,7 +161,7 @@ namespace Sir.VectorSpace
 
             if (vec.TryGetValue(key, out v))
             {
-                vec[key] = v * (1 + value);
+                vec[key] += v * value;
             }
             else
             {

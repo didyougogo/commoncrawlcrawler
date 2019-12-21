@@ -40,19 +40,17 @@ namespace Sir.Search
                     }
                     else
                     {
-                        if (embedding.Count > 0)
+                        var len = index - offset;
+
+                        if (embedding.Count > 0 && len < 30)
                         {
-                            //var len = index - offset;
-
-                            //if (len<35)
                             result.Add(new IndexedVector(
-                                    embedding,
-                                    source.Slice(offset, index - offset),
-                                    VectorWidth));
-
-                            embedding.Clear();
-                            //embedding = new SortedList<int, double>();
+                                embedding,
+                                source.Slice(offset, index - offset),
+                                VectorWidth));
                         }
+
+                        embedding.Clear();
 
                         offset = index + 1;
                     }

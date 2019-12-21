@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -76,17 +77,17 @@ namespace Sir.Search
             {
                 var sorted = new SortedList<double, VectorNode>(Space);
 
-                _logger.LogInformation($"sorted angles in {time.Elapsed}");
+                _logger.LogInformation($"sorted {sorted.Count} angles in {time.Elapsed}");
 
                 time.Restart();
 
                 var size = columnWriter.CreateSortedPage(sorted, _vectorStream, pageIndexWriter);
 
-                time.Stop();
+                _logger.LogInformation($"serialized segment with size {size} in {time.Elapsed}");
 
-                File.WriteAllText("train.log", $"{sorted.Count} sorted words\r\n{string.Join("\r\n", sorted)}");
-
-                _logger.LogInformation($"serialized lexicon segment with size {size} in {time.Elapsed}");
+                time.Restart();
+                File.WriteAllLines("train.log", sorted.Select(x=>x.ToString()));
+                _logger.LogInformation($"wrote train.log in {time.Elapsed}");
             }
         }
 
