@@ -9,10 +9,10 @@ namespace Sir
 
         bool CollectionExists(ulong collectionId);
         bool CollectionIsIndexOnly(ulong collectionId);
-        Stream CreateAppendStream(string fileName, int bufferSize = 4096);
-        Stream CreateAsyncAppendStream(string fileName, int bufferSize = 4096);
-        Stream CreateAsyncReadStream(string fileName, int bufferSize = 4096);
-        Stream CreateReadStream(string fileName, int bufferSize = 4096, FileOptions fileOptions = FileOptions.RandomAccess);
+        Stream OpenAppendStream(string fileName, int bufferSize = 4096);
+        Stream OpenAsyncAppendStream(string fileName, int bufferSize = 4096);
+        Stream OpenAsyncReadStream(string fileName, int bufferSize = 4096);
+        Stream OpenReadStream(string fileName, int bufferSize = 4096, FileOptions fileOptions = FileOptions.RandomAccess);
         void Dispose();
         void RegisterKeyMapping(ulong collectionId, ulong keyHash, long keyId);
         void RegisterCollectionAlias(ulong collectionId, ulong originalCollectionId);

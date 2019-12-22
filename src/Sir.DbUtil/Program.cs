@@ -24,9 +24,10 @@ namespace Sir.DbUtil
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning)
                     .AddFilter("System", LogLevel.Warning)
-                    .AddFilter("Sir.DbUtil.Program", LogLevel.Debug)
+                    .AddFilter("Sir.DbUtil", LogLevel.Debug)
                     .AddConsole()
-                    .AddDebug();
+                    .AddDebug()
+                    ;
             });
 
             var logger = loggerFactory.CreateLogger("dbutil");
@@ -35,30 +36,19 @@ namespace Sir.DbUtil
 
             var model = new BocModel();
             var command = args[0].ToLower();
+            var fullTime = Stopwatch.StartNew();
 
             if (command == "submit")
             {
-                var fullTime = Stopwatch.StartNew();
-
                 Submit(args);
-
-                logger.LogInformation("submit took {0}", fullTime.Elapsed);
             }
             else if (command == "write_wp")
             {
-                var fullTime = Stopwatch.StartNew();
-
                 WriteWP(args, model, loggerFactory);
-
-                logger.LogInformation("write operation took {0}", fullTime.Elapsed);
             }
             else if (command == "validate")
             {
-                var time = Stopwatch.StartNew();
-
                 Validate(args, model, logger);
-
-                logger.LogInformation("validate took {0}", time.Elapsed);
             }
             else if ((command == "slice"))
             {
@@ -66,13 +56,15 @@ namespace Sir.DbUtil
             }
             else if (command == "download_wat")
             {
-                // E.g. download_wat CC-MAIN-2019-43 C:\\Users\\marlag\\Downloads\\ cc_wat 1
-
-                DownloadAndIndexWat(args, model, loggerFactory, logger);
+                DownloadAndIndexWat(args, new BigramModel(model), loggerFactory, logger);
             }
             else if (command == "write_wet")
             {
                 WriteWet(args, model, logger);
+            }
+            else if (command == "train_wat")
+            {
+                TrainWat(args, model, logger);
             }
             else if (command == "train_wet")
             {
@@ -91,9 +83,12 @@ namespace Sir.DbUtil
                 logger.LogInformation("unknown command: {0}", command);
             }
 
-            logger.LogInformation($"executed {command}");
+            logger.LogInformation($"executed {command} in {fullTime.Elapsed}");
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private static void WriteWet(string[] args, IStringModel model, ILogger logger)
         {
             var fileName = args[1];
@@ -110,28 +105,57 @@ namespace Sir.DbUtil
 
             using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
             {
-                sessionFactory.Truncate(collectionId);
-
                 sessionFactory.Write(writeJob, reportSize:1000);
             }
         }
 
+        /// <summary>
+        /// train_wat C:\Users\marlag\Downloads\crawl-data\CC-MAIN-2019-43\segments\1570986647517.11\wat\CC-MAIN-20191013195541-20191013222541-00000.warc.wat.gz
+        /// </summary>
+        private static void TrainWat(string[] args, IStringModel model, ILogger logger)
+        {
+            var fileName = args[1];
+            var collectionId = "lexicon".ToHash();
+            var fieldNames = new HashSet<string>
+            { 
+                "title",
+                "description",
+                "scheme",
+                "host",
+                "path",
+                "query",
+                "url"
+            };
+
+            var writeJob = new Job(
+                collectionId,
+                ReadWatFile(fileName, null),
+                model,
+                fieldNames);
+
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
+            {
+                sessionFactory.Train(writeJob, reportSize: 1000);
+            }
+        }
+
+        /// <summary>
+        /// train_wet C:\\data\\resin\\wet\\crawl-data\\CC-MAIN-2019-43\\segments\\1570986647517.11\\wet\\CC-MAIN-20191013195541-20191013222541-00000.warc.wet.gz
+        /// </summary>
         private static void TrainWet(string[] args, IStringModel model, ILogger logger)
         {
             var fileName = args[1];
             var collectionId = "lexicon".ToHash();
-            var indexedFieldNames = new HashSet<string> { "description" };
+            var fieldNames = new HashSet<string> { "description" };
 
             var writeJob = new Job(
                 collectionId,
                 ReadWetFile(fileName),
                 model,
-                indexedFieldNames);
+                fieldNames);
 
             using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
             {
-                sessionFactory.Truncate(collectionId);
-
                 sessionFactory.Train(writeJob, reportSize: 1000);
             }
         }
@@ -199,6 +223,9 @@ namespace Sir.DbUtil
             }
         }
 
+        /// <summary>
+        /// download_wat CC-MAIN-2019-43 C:\Users\marlag\Downloads cc_wat 1
+        /// </summary>
         private static void DownloadAndIndexWat(string[] args, IStringModel model, ILoggerFactory logger, ILogger log)
         {
             var ccName = args[1];
@@ -312,7 +339,7 @@ namespace Sir.DbUtil
             log.LogInformation($"indexed {fileName} in {time.Elapsed}");
         }
 
-        private static IEnumerable<IDictionary<string, object>> ReadWatFile(string fileName, string refFileNae)
+        private static IEnumerable<IDictionary<string, object>> ReadWatFile(string fileName, string refFileName)
         {
             using (var fs = File.OpenRead(fileName))
             using (var zip = new GZipStream(fs, CompressionMode.Decompress))
@@ -379,7 +406,7 @@ namespace Sir.DbUtil
                                 }
                             }
 
-                            yield return new Dictionary<string, object>
+                            var d = new Dictionary<string, object>
                                 {
                                     { "title", title },
                                     { "description", description },
@@ -387,9 +414,13 @@ namespace Sir.DbUtil
                                     { "host", url.Host },
                                     { "path", url.AbsolutePath },
                                     { "query", url.Query },
-                                    { "url", url.ToString() },
-                                    { "filename", refFileNae}
+                                    { "url", url.ToString() }
                                 };
+
+                            if (refFileName != null)
+                                d["filename"] = refFileName;
+
+                            yield return d;
                         }
                     }
 

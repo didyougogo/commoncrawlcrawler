@@ -1,4 +1,5 @@
-﻿using Sir.Document;
+﻿using Sir.Core;
+using Sir.Document;
 using System;
 using System.Collections.Generic;
 
@@ -11,53 +12,64 @@ namespace Sir.Search
     {
         private readonly ulong _collectionId;
         private readonly DocumentWriter _streamWriter;
+        private readonly ProducerConsumerQueue<(IDictionary<string, object> document, HashSet<string> storedFieldNames)> _queue;
+        private readonly SessionFactory _sessionFactory;
 
         public WriteSession(
             ulong collectionId,
-            DocumentWriter streamWriter)
+            DocumentWriter streamWriter,
+            SessionFactory sessionFactory)
         {
             _collectionId = collectionId;
             _streamWriter = streamWriter;
+            _queue = new ProducerConsumerQueue<(IDictionary<string, object>, HashSet<string>)>(1, DoWrite);
+            _sessionFactory = sessionFactory;
         }
 
         public void Dispose()
         {
+            _queue.Dispose();
             _streamWriter.Dispose();
         }
 
-        /// <summary>
-        /// Fields prefixed with "_" will not be indexed.
-        /// Fields prefixed with "__" will not be stored.
-        /// </summary>
-        /// <returns>Document ID</returns>
         public void Write(IDictionary<string, object> document, HashSet<string> storedFieldNames)
         {
             document["created"] = DateTime.Now.ToBinary();
             document["collectionid"] = _collectionId;
 
-            var docMap = new List<(long keyId, long valId)>();
             var docId = _streamWriter.GetNextDocId();
+
+            document["___docid"] = docId;
 
             foreach (var key in document.Keys)
             {
-                var keyId = _streamWriter.EnsureKeyExists(key);
+                _streamWriter.EnsureKeyExists(key);
+            }
 
-                if (key != "collectionid" && !storedFieldNames.Contains(key))
+            _queue.Enqueue((document, storedFieldNames));
+        }
+
+        private void DoWrite((IDictionary<string, object> document, HashSet<string> storedFieldNames) work)
+        {
+            var docMap = new List<(long keyId, long valId)>();
+
+            foreach (var key in work.document.Keys)
+            {
+                if (key != "collectionid" && !work.storedFieldNames.Contains(key))
                 {
                     continue;
                 }
 
-                var val = document[key];
+                var val = work.document[key];
 
                 if (val == null)
                 {
                     continue;
                 }
 
-                byte dataType;
-
                 // store k/v
-                var kvmap = _streamWriter.Put(keyId, val, out dataType);
+                var keyId = _sessionFactory.GetKeyId(_collectionId, key.ToHash());
+                var kvmap = _streamWriter.Put(keyId, val, out _);
 
                 // store refs to k/v pair
                 docMap.Add(kvmap);
@@ -65,9 +77,7 @@ namespace Sir.Search
 
             var docMeta = _streamWriter.PutDocumentMap(docMap);
 
-            _streamWriter.PutDocumentAddress(docId, docMeta.offset, docMeta.length);
-
-            document["___docid"] = docId;
+            _streamWriter.PutDocumentAddress((long)work.document["___docid"], docMeta.offset, docMeta.length);
         }
     }
 }

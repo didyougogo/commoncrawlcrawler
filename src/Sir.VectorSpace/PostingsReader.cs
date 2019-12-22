@@ -38,7 +38,7 @@ namespace Sir.Search
         {
             return _streams.GetOrAdd(
                 collectionId,
-                _sessionFactory.CreateReadStream(
+                _sessionFactory.OpenReadStream(
                     Path.Combine(_sessionFactory.Dir, $"{collectionId}.pos"))
                 );
         }

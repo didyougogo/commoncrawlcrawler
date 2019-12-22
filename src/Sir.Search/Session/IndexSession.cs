@@ -11,7 +11,7 @@ namespace Sir.Search
     /// <summary>
     /// Indexing session targeting a single collection.
     /// </summary>
-    public class IndexSession : IDisposable
+    public class IndexSession : IDisposable, IIndexSession
     {
         private readonly ulong _collectionId;
         private readonly SessionFactory _sessionFactory;
@@ -35,8 +35,8 @@ namespace Sir.Search
             _collectionId = collectionId;
             _sessionFactory = sessionFactory;
             _config = config;
-            _postingsStream = sessionFactory.CreateAppendStream($"{collectionId}.pos");
-            _vectorStream = sessionFactory.CreateAppendStream($"{collectionId}.vec");
+            _postingsStream = sessionFactory.OpenAppendStream($"{collectionId}.pos");
+            _vectorStream = sessionFactory.OpenAppendStream($"{collectionId}.vec");
             Model = model;
             Index = new ConcurrentDictionary<long, VectorNode>();
             _logger = logger;
@@ -95,9 +95,9 @@ namespace Sir.Search
 
             foreach (var column in Index)
             {
-                using (var indexStream = _sessionFactory.CreateAppendStream($"{_collectionId}.{column.Key}.ix"))
+                using (var indexStream = _sessionFactory.OpenAppendStream($"{_collectionId}.{column.Key}.ix"))
                 using (var columnWriter = new ColumnWriter(indexStream))
-                using (var pageIndexWriter = new PageIndexWriter(_sessionFactory.CreateAppendStream($"{_collectionId}.{column.Key}.ixtp")))
+                using (var pageIndexWriter = new PageIndexWriter(_sessionFactory.OpenAppendStream($"{_collectionId}.{column.Key}.ixtp")))
                 {
                     var size = columnWriter.CreatePage(column.Value, _vectorStream, _postingsStream, pageIndexWriter);
 

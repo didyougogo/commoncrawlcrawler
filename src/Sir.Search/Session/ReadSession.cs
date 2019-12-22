@@ -285,8 +285,8 @@ namespace Sir.Search
                     collectionId,
                     keyId,
                     _sessionFactory,
-                    _sessionFactory.CreateReadStream(Path.Combine(_sessionFactory.Dir, $"{collectionId}.vec")),
-                    _sessionFactory.CreateReadStream(ixFileName));
+                    _sessionFactory.OpenReadStream(Path.Combine(_sessionFactory.Dir, $"{collectionId}.vec")),
+                    _sessionFactory.OpenReadStream(ixFileName));
         }
 
         public INodeReader GetOrTryCreateIndexReader(ulong collectionId, long keyId)
@@ -302,8 +302,8 @@ namespace Sir.Search
                     collectionId,
                     keyId,
                     _sessionFactory,
-                    _sessionFactory.CreateReadStream(Path.Combine(_sessionFactory.Dir, $"{collectionId}.vec")),
-                    _sessionFactory.CreateReadStream(ixFileName)));
+                    _sessionFactory.OpenReadStream(Path.Combine(_sessionFactory.Dir, $"{collectionId}.vec")),
+                    _sessionFactory.OpenReadStream(ixFileName)));
         }
 
         public INodeReader GetOrTryCreateIndexReaderNoCache(ulong collectionId, long keyId)
@@ -317,8 +317,8 @@ namespace Sir.Search
                     collectionId,
                     keyId,
                     _sessionFactory,
-                    _sessionFactory.CreateReadStream(Path.Combine(_sessionFactory.Dir, $"{collectionId}.vec")),
-                    _sessionFactory.CreateReadStream(ixFileName));
+                    _sessionFactory.OpenReadStream(Path.Combine(_sessionFactory.Dir, $"{collectionId}.vec")),
+                    _sessionFactory.OpenReadStream(ixFileName));
         }
 
         public DocumentReader GetOrCreateDocumentReader(ulong collectionId)

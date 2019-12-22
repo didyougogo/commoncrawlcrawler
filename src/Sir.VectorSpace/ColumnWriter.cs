@@ -32,16 +32,25 @@ namespace Sir.VectorSpace
         }
 
         public int CreateSortedPage(
-            SortedList<double,VectorNode> sortedColumn,
-            Stream vectorStream,
+            SortedList<double, VectorNode> sortedColumn,
+            Stream postingsStream,
             PageIndexWriter pageIndexWriter)
         {
             var page = GraphBuilder.SerializeSortedList(
-                sortedColumn, 
-                _ixStream, 
-                vectorStream);
+                sortedColumn,
+                _ixStream,
+                postingsStream);
 
             pageIndexWriter.Put(page.offset, page.length);
+
+            return page.count;
+        }
+
+        public int CreateSortedPage(SortedList<double,VectorNode> sortedColumn)
+        {
+            var page = GraphBuilder.SerializeSortedList(
+                sortedColumn, 
+                _ixStream);
 
             return page.count;
         }

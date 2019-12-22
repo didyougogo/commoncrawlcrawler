@@ -66,7 +66,7 @@ namespace Sir.VectorSpace
 
         public IList<(long offset, long length)> GetAllPages(string pageFileName)
         {
-            using (var ixpStream = _sessionFactory.CreateReadStream(pageFileName))
+            using (var ixpStream = _sessionFactory.OpenReadStream(pageFileName))
             {
                 return new PageIndexReader(ixpStream).GetAll();
             }

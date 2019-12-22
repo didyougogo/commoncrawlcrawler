@@ -408,32 +408,60 @@ namespace Sir.VectorSpace
         }
 
         public static (long offset, long length, int count) SerializeSortedList(
-            SortedList<double, VectorNode> sortedNodes, 
-            Stream indexStream, 
-            Stream vectorStream) 
+            SortedList<double, VectorNode> sortedNodes,
+            Stream indexStream)
         {
-            var length = 0;
-            var offset = indexStream.Position;
-            var count = 0;
+            Span<double> span = new double[sortedNodes.Count];
 
-            foreach (var node in sortedNodes)
+            for (int i = 0; i < span.Length; i++)
             {
-                if (node.Value.ComponentCount == 0)
-                    continue;
-
-                node.Value.VectorOffset = node.Value.Vector.Serialize(vectorStream);
-
-                SerializeAngleAndVectorOffset(node.Key, node.Value, indexStream);
-
-                length += VectorNode.BlockSize;
-                count++;
+                span[i] = sortedNodes.Keys[i];
             }
 
-            return (offset, length, count);
+            var offset = indexStream.Position;
+            var buf = MemoryMarshal.Cast<double, byte>(span);
+
+            indexStream.Write(buf);
+
+            return (offset, buf.Length, sortedNodes.Count);
+        }
+
+        public static (long offset, long length, int count) SerializeSortedList(
+            SortedList<double, VectorNode> sortedNodes,
+            Stream indexStream,
+            Stream postingsStream)
+        {
+            Span<double> keys = new double[sortedNodes.Count];
+            Span<long> postingsOffsets = new long[sortedNodes.Count];
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                keys[i] = sortedNodes.Keys[i];
+
+                var node = sortedNodes.Values[i];
+
+                SerializePostings(node, postingsStream);
+
+                postingsOffsets[i] = node.PostingsOffset;
+            }
+
+            var offset = indexStream.Position;
+            var keyBuf = MemoryMarshal.Cast<double, byte>(keys);
+
+            indexStream.Write(keyBuf);
+
+            var buf = MemoryMarshal.Cast<long, byte>(postingsOffsets);
+
+            indexStream.Write(buf);
+
+            return (offset, indexStream.Position - offset, sortedNodes.Count);
         }
 
         public static (long offset, long length) SerializeTree(
-            VectorNode node, Stream indexStream, Stream vectorStream, Stream postingsStream)
+            VectorNode node, 
+            Stream indexStream, 
+            Stream vectorStream, 
+            Stream postingsStream)
         {
             var stack = new Stack<VectorNode>();
             var offset = indexStream.Position;
@@ -546,30 +574,19 @@ namespace Sir.VectorSpace
             }
         }
 
-        public static SortedList<double, VectorNode> DeserializeSortedList(
+        public static Memory<double> DeserializeSortedList(
             Stream indexStream,
             Stream vectorStream,
             IModel model)
         {
-            const int blockSize = sizeof(double) + sizeof(long) + sizeof(long);
-            var result = new SortedList<double, VectorNode>();
-            var buf = new byte[blockSize];
-            int read = indexStream.Read(buf);
-
-            while (read == blockSize)
+            using (var mem = new MemoryStream())
             {
-                var angle = BitConverter.ToDouble(buf, 0);
-                var vectorOffset = BitConverter.ToInt64(buf, sizeof(double));
-                var componentCount = (int)BitConverter.ToInt64(buf, sizeof(double) + sizeof(long));
-                var vector = VectorOperations.DeserializeVector(
-                    vectorOffset, componentCount, model.VectorWidth, vectorStream);
+                indexStream.CopyTo(mem);
 
-                result.Add(angle, new VectorNode(vector));
+                Span<byte> buf = mem.ToArray();
 
-                read = indexStream.Read(buf);
+                return MemoryMarshal.Cast<byte, double>(buf).ToArray();
             }
-
-            return result;
         }
 
         public static void DeserializeTree(

@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using Sir.Core;
 using Sir.Document;
 using Sir.KeyValue;
 using Sir.VectorSpace;
@@ -23,7 +24,7 @@ namespace Sir.Search
 
         private ConcurrentDictionary<ulong, ulong> _collectionAliases;
         private ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, long>> _keys;
-        private SortedList<double, VectorNode> _lexicon;
+        private Memory<double> _lexicon;
 
         private readonly ILogger _logger;
 
@@ -60,7 +61,7 @@ namespace Sir.Search
 
             _lexicon = LoadLexicon();
 
-            _logger.LogInformation($"loaded lexicon in {time.Elapsed}");
+            _logger.LogInformation($"loaded lexicon ({_lexicon.Length/sizeof(double)}) in {time.Elapsed}");
 
             _logger.LogInformation($"initiated");
         }
@@ -160,7 +161,7 @@ namespace Sir.Search
         {
             if ("lexicon".ToHash() == collectionId)
             {
-                _lexicon.Clear();
+                _lexicon = new double[0];
             }
 
             var count = 0;
@@ -204,61 +205,64 @@ namespace Sir.Search
             _logger.LogInformation($"truncated index {collectionId} ({count} files)");
         }
 
-        private SortedList<double, VectorNode> LoadLexicon()
+        private Memory<double> LoadLexicon()
         {
             var collectionId = "lexicon".ToHash();
             var ixFileName = Path.Combine(Dir, $"{collectionId}.ix");
 
             if (File.Exists(ixFileName))
             {
-                using (var ixStream = CreateReadStream(Path.Combine(Dir, $"{collectionId}.ix")))
-                using (var vecStream = CreateReadStream(Path.Combine(Dir, $"{collectionId}.vec")))
+                using (var ixStream = OpenReadStream(Path.Combine(Dir, $"{collectionId}.ix")))
+                using (var vecStream = OpenReadStream(Path.Combine(Dir, $"{collectionId}.vec")))
                 {
                     return GraphBuilder.DeserializeSortedList(ixStream, vecStream, Model);
                 }
             }
 
-            return new SortedList<double, VectorNode>();
+            return new double[0];
         }
 
         public void Train(Job job, int reportSize)
         {
-            var batchNo = 0;
             var time = Stopwatch.StartNew();
 
             using (var trainSession = CreateTrainLexiconSession())
+            using (var queue = new ProducerConsumerQueue<IDictionary<string, object>>(
+                1,
+                doc =>
+                {
+                    trainSession.Put(doc, job.IndexedFieldNames);
+                }))
             {
+                var t = Stopwatch.StartNew();
+                var batchNo = 0;
+
                 foreach (var batch in job.Documents.Batch(reportSize))
                 {
-                    Parallel.ForEach(batch, doc =>
-                    //foreach (var doc in batch)
-                    {
-                        Train(doc, trainSession, job.IndexedFieldNames);
-                    });
+                    var count = 0;
 
-                    _logger.LogInformation(
-                        $"trained batch {++batchNo}. weight {trainSession.Space.Count}. merges {trainSession.Merges}");
+                    foreach (var doc in batch)
+                    {
+                        queue.Enqueue(doc);
+
+                        count++;
+                    }
+
+                    var e = t.Elapsed.TotalMilliseconds;
+                    var docsPerSecond = (int)(count / e * 1000);
+
+                    _logger.LogInformation($"enqueued batch {++batchNo} in {t.Elapsed}. queue count {queue.Count}. reading from disk at {docsPerSecond} docs/s");
+
+                    t.Restart();
                 }
             }
 
-            _logger.LogInformation($"job ({job.CollectionId}) took {time.Elapsed}");
-        }
-
-        public void Train(IDictionary<string, object> document, TrainSession trainSession, HashSet<string> trainingFieldNames)
-        {
-            Parallel.ForEach(document, kv =>
-            //foreach (var kv in document)
-            {
-                if (trainingFieldNames.Contains(kv.Key) && kv.Value != null)
-                {
-                    trainSession.Put((string)kv.Value);
-                }
-            });
+            _logger.LogInformation($"training ({job.CollectionId}) took {time.Elapsed}");
         }
 
         public IEnumerable<IDictionary<string, object>> WriteOnly(Job job, WriteSession writeSession)
         {
-            var time = Stopwatch.StartNew();
+            //var time = Stopwatch.StartNew();
             var docCount = 0;
 
             foreach (var document in job.Documents)
@@ -270,16 +274,19 @@ namespace Sir.Search
                 yield return document;
             }
 
-            _logger.LogInformation($"writing {docCount} documents took {time.Elapsed}.");
+            //_logger.LogInformation($"writing {docCount} documents took {time.Elapsed}.");
         }
 
-        public void IndexOnly(IDictionary<string, object> document, IndexSession indexSession, HashSet<string> indexedFieldNames)
+        public void IndexOnly(
+            IDictionary<string, object> document, 
+            IIndexSession indexSession, 
+            HashSet<string> indexedFieldNames)
         {
             var docId = (long)document["___docid"];
             var collectionId = (ulong)document["collectionid"];
 
-            //Parallel.ForEach(document, kv =>
-            foreach (var kv in document)
+            Parallel.ForEach(document, kv =>
+            //foreach (var kv in document)
             {
                 if (indexedFieldNames.Contains(kv.Key) && kv.Value != null)
                 {
@@ -287,21 +294,31 @@ namespace Sir.Search
 
                     indexSession.Put(docId, keyId, (string)kv.Value);
                 }
-            }//);
+            });
         }
 
-        public void IndexOnly(IEnumerable<IDictionary<string, object>> documents, IndexSession indexSession, HashSet<string> indexedFieldNames)
-        {
-            foreach (var document in documents)
-            {
-                IndexOnly(document, indexSession, indexedFieldNames);
-            }
-        }
-
-        public IndexInfo Write(Job job, WriteSession writeSession, IndexSession indexSession)
+        public void IndexOnly(
+            IEnumerable<IDictionary<string, object>> documents, 
+            IIndexSession indexSession, 
+            HashSet<string> indexedFieldNames)
         {
             var time = Stopwatch.StartNew();
             var docCount = 0;
+
+            foreach (var document in documents)
+            {
+                IndexOnly(document, indexSession, indexedFieldNames);
+
+                docCount++;
+            }
+
+            _logger.LogInformation($"indexing {docCount} documents took {time.Elapsed}.");
+        }
+
+        public IndexInfo Write(Job job, WriteSession writeSession, IIndexSession indexSession)
+        {
+            var docCount = 0;
+            var time = Stopwatch.StartNew();
 
             //Parallel.ForEach(WriteOnly(job, writeSession), document=>
             foreach (var document in WriteOnly(job, writeSession))
@@ -311,12 +328,12 @@ namespace Sir.Search
                 docCount++;
             }//);
 
-            _logger.LogInformation($"writing job consisting of {docCount} documents {job.CollectionId} took {time.Elapsed}.");
+            _logger.LogInformation($"indexing {docCount} documents {job.CollectionId} took {time.Elapsed}.");
 
             return indexSession.GetIndexInfo();
         }
 
-        public void Write(Job job, WriteSession writeSession, IndexSession indexSession, int reportSize)
+        public void Write(Job job, WriteSession writeSession, IIndexSession indexSession, int reportSize)
         {
             var time = Stopwatch.StartNew();
             var info = Write(job, writeSession, indexSession);
@@ -338,10 +355,10 @@ namespace Sir.Search
                 {
                     Write(
                         new Job(
-                            job.CollectionId, 
-                            batch, 
-                            job.Model, 
-                            job.StoredFieldNames, 
+                            job.CollectionId,
+                            batch,
+                            job.Model,
+                            job.StoredFieldNames,
                             job.IndexedFieldNames),
                         writeSession,
                         indexSession,
@@ -363,7 +380,7 @@ namespace Sir.Search
             }
         }
 
-        public void Write(Job job, IndexSession indexSession)
+        public void Write(Job job, IIndexSession indexSession)
         {
             using (var writeSession = CreateWriteSession(job.CollectionId))
             {
@@ -490,7 +507,7 @@ namespace Sir.Search
             {
                 keys.GetOrAdd(keyHash, keyId);
 
-                using (var stream = CreateAppendStream(fileName))
+                using (var stream = OpenAppendStream(fileName))
                 {
                     stream.Write(BitConverter.GetBytes(keyHash), 0, sizeof(ulong));
                 }
@@ -505,7 +522,7 @@ namespace Sir.Search
 
                 var fileName = "aliases.cmap";
 
-                using (var stream = CreateAppendStream(fileName))
+                using (var stream = OpenAppendStream(fileName))
                 {
                     Span<ulong> buf = new ulong[2];
 
@@ -557,8 +574,8 @@ namespace Sir.Search
 
         public string GetKey(ulong collectionId, long keyId)
         {
-            using (var indexReader = new ValueIndexReader(CreateReadStream(Path.Combine(Dir, $"{collectionId}.kix"))))
-            using (var reader = new ValueReader(CreateReadStream(Path.Combine(Dir, $"{collectionId}.key"))))
+            using (var indexReader = new ValueIndexReader(OpenReadStream(Path.Combine(Dir, $"{collectionId}.kix"))))
+            using (var reader = new ValueReader(OpenReadStream(Path.Combine(Dir, $"{collectionId}.key"))))
             {
                 var keyInfo = indexReader.Get(keyId);
 
@@ -577,11 +594,12 @@ namespace Sir.Search
 
             return new WriteSession(
                 collectionId,
-                documentWriter
+                documentWriter,
+                this
             );
         }
 
-        public IndexSession CreateIndexSession(ulong collectionId)
+        public IIndexSession CreateIndexSession(ulong collectionId)
         {
             return new IndexSession(
                 collectionId, 
@@ -589,17 +607,6 @@ namespace Sir.Search
                 Model, 
                 Config, 
                 _logger);
-        }
-
-        public PrecomputedIndexSession CreatePrecomputedIndexSession(ulong collectionId)
-        {
-            return new PrecomputedIndexSession(
-                collectionId,
-                this,
-                Model,
-                Config,
-                _logger,
-                _lexicon);
         }
 
         public TrainSession CreateTrainLexiconSession()
@@ -633,7 +640,7 @@ namespace Sir.Search
                 new PostingsReader(this));
         }
 
-        public Stream CreateAsyncReadStream(string fileName, int bufferSize = 4096)
+        public Stream OpenAsyncReadStream(string fileName, int bufferSize = 4096)
         {
             var abs = GetAbsolutePath(fileName);
 
@@ -648,7 +655,7 @@ namespace Sir.Search
             : null;
         }
 
-        public Stream CreateReadStream(string fileName, int bufferSize = 4096, FileOptions fileOptions = FileOptions.RandomAccess)
+        public Stream OpenReadStream(string fileName, int bufferSize = 4096, FileOptions fileOptions = FileOptions.RandomAccess)
         {
             var abs = GetAbsolutePath(fileName);
 
@@ -663,7 +670,7 @@ namespace Sir.Search
                 : null;
         }
 
-        public Stream CreateAsyncAppendStream(string fileName, int bufferSize = 4096)
+        public Stream OpenAsyncAppendStream(string fileName, int bufferSize = 4096)
         {
             var abs = GetAbsolutePath(fileName);
 
@@ -676,7 +683,14 @@ namespace Sir.Search
                 FileOptions.Asynchronous);
         }
 
-        public Stream CreateAppendStream(string fileName, int bufferSize = 4096)
+        public Stream OpenTruncatedStream(string fileName, int bufferSize = 4096)
+        {
+            var abs = GetAbsolutePath(fileName);
+
+            return new FileStream(abs, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, bufferSize);
+        }
+
+        public Stream OpenAppendStream(string fileName, int bufferSize = 4096)
         {
             var abs = GetAbsolutePath(fileName);
 

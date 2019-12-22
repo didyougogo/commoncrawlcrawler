@@ -102,6 +102,16 @@ namespace Sir
             ComponentCount = tuples.Length;
         }
 
+        public IndexedVector(int index, double value, int vectorWidth)
+        {
+            var tuples = new Tuple<int, double>[] { new Tuple<int, double>(index, value) };
+
+            Value = CreateVector.Sparse(
+                SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
+
+            ComponentCount = tuples.Length;
+        }
+
         public IndexedVector(Tuple<int, double>[] tuples, int vectorWidth)
         {
             Value = CreateVector.Sparse(
@@ -123,8 +133,15 @@ namespace Sir
                 if (Value == null)
                     Value = vector.Value;
                 else
-                    Value.Add(vector.Value);
+                    Value = Value.Add(vector.Value);
             }
+
+            ComponentCount = ((SparseVectorStorage<double>)Value.Storage).Length;
+        }
+
+        public IndexedVector(IVector vector1, IVector vector2)
+        {
+            Value = vector1.Value.Add(vector2.Value);
 
             ComponentCount = ((SparseVectorStorage<double>)Value.Storage).Length;
         }
@@ -151,7 +168,7 @@ namespace Sir
 
         public override string ToString()
         {
-            return Data.HasValue ? new string(Data.Value.ToArray()) : Value.ToString();
+            return Data.HasValue ? new string(Data.Value.ToArray()) : string.Empty;
         }
     }
 

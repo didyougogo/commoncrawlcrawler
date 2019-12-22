@@ -116,11 +116,6 @@ namespace Sir.VectorSpace
             return product;
         }
 
-        public static IVector Add(this IVector vec1, IVector vec2)
-        {
-            throw new NotImplementedException();
-        }
-
         public static SortedList<long, int> Merge(this SortedList<long, int> vec1, SortedList<long, int> vec2)
         {
             var result = new SortedList<long, int>();

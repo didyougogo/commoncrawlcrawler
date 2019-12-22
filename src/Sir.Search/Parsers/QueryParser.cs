@@ -194,9 +194,7 @@ namespace Sir.Search
 
             if (_sessionFactory.TryGetKeyId(collectionId, key.ToHash(), out keyId))
             {
-                var tokens = _sessionFactory.CreateDocumentEmbeddings(
-                    _model.Tokenize(value.ToCharArray()), 
-                    _model);
+                var tokens = _model.Tokenize(value.ToCharArray());
 
                 foreach (var term in tokens)
                 {

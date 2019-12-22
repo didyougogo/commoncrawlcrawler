@@ -18,24 +18,24 @@ namespace Sir.Document
 
         public DocumentWriter(ulong collectionId, ISessionFactory sessionFactory)
         {
-            var valueStream = sessionFactory.CreateAppendStream(
+            var valueStream = sessionFactory.OpenAppendStream(
                 string.Format("{0}.val", collectionId), 
                 int.Parse(sessionFactory.Config.Get("value_stream_write_buffer_size")));
 
-            var keyStream = sessionFactory.CreateAppendStream(
+            var keyStream = sessionFactory.OpenAppendStream(
                 string.Format("{0}.key", collectionId));
 
-            var docStream = sessionFactory.CreateAppendStream(
+            var docStream = sessionFactory.OpenAppendStream(
                 string.Format("{0}.docs", collectionId), 
                 int.Parse(sessionFactory.Config.Get("doc_map_stream_write_buffer_size")));
 
-            var valueIndexStream = sessionFactory.CreateAppendStream(
+            var valueIndexStream = sessionFactory.OpenAppendStream(
                 string.Format("{0}.vix", collectionId));
 
-            var keyIndexStream = sessionFactory.CreateAppendStream(
+            var keyIndexStream = sessionFactory.OpenAppendStream(
                 string.Format("{0}.kix", collectionId));
 
-            var docIndexStream = sessionFactory.CreateAppendStream(
+            var docIndexStream = sessionFactory.OpenAppendStream(
                 string.Format("{0}.dix", collectionId));
 
             _vals = new ValueWriter(valueStream);
@@ -61,6 +61,7 @@ namespace Sir.Document
                 var keyInfo = PutKey(keyStr);
 
                 keyId = PutKeyInfo(keyInfo.offset, keyInfo.len, keyInfo.dataType);
+
                 _sessionFactory.RegisterKeyMapping(_collectionId, keyHash, keyId);
             }
 
