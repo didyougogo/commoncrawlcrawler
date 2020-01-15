@@ -67,7 +67,7 @@ namespace Sir.Search
 
             ReadResult result = null;
 
-            using (var readSession = _sessionFactory.CreateReadSession())
+            using (var readSession = _sessionFactory.CreateReadSession(model))
             {
                 if (request.Query.ContainsKey("id") && request.Query.ContainsKey("collection"))
                 {

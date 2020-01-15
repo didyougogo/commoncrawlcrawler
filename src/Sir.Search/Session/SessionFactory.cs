@@ -21,24 +21,19 @@ namespace Sir.Search
     public class SessionFactory : IDisposable, ISessionFactory
     {
         private readonly ConcurrentDictionary<string, MemoryMappedFile> _mmfs;
-
+        private readonly ILogger _logger;
         private ConcurrentDictionary<ulong, ulong> _collectionAliases;
         private ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, long>> _keys;
-        private Memory<double> _lexicon;
-
-        private readonly ILogger _logger;
 
         public string Dir { get; }
         public IConfigurationProvider Config { get; }
-        public IStringModel Model { get; }
 
-        public SessionFactory(IConfigurationProvider config, IStringModel model, ILogger logger)
+        public SessionFactory(IConfigurationProvider config, ILogger logger)
         {
             var time = Stopwatch.StartNew();
 
             Dir = config.Get("data_dir");
             Config = config;
-            Model = model;
 
             if (!Directory.Exists(Dir))
             {
@@ -57,74 +52,7 @@ namespace Sir.Search
 
             _logger.LogInformation($"loaded aliases in {time.Elapsed}");
 
-            time.Restart();
-
-            _lexicon = LoadLexicon();
-
-            _logger.LogInformation($"loaded lexicon ({_lexicon.Length/sizeof(double)}) in {time.Elapsed}");
-
             _logger.LogInformation($"initiated");
-        }
-
-        public IEnumerable<IVector> CreateDocumentEmbeddings(
-            IEnumerable<IVector> tokens,
-            IStringModel model)
-        {
-            var bufIndex = 0;
-            var buf = new double[2];
-            //var debug = new string[2];
-            var count = 0;
-
-            foreach (var token in tokens)
-            {
-                var angle = model.CosAngle(model.SortingVector, token);
-
-                if (bufIndex == 2)
-                {
-                    yield return new IndexedVector(
-                        new double[2] { buf[0], angle },
-                        model.VectorWidth);
-
-                    //_logger.LogInformation($"{debug[0]}{token.Data}");
-
-                    buf[0] = buf[1];
-                    buf[1] = angle;
-
-                    //debug[0] = debug[1];
-                    //debug[1] = token.Data.ToString();
-                }
-                else
-                {
-                    buf[bufIndex] = angle;
-
-                    //debug[bufIndex] = token.Data.ToString();
-
-                    bufIndex++;
-                }
-
-                count++;
-            }
-
-            if (count == 2) 
-            {
-                yield return new IndexedVector(
-                        new double[2] { buf[0], 0 },
-                        model.VectorWidth);
-
-                yield return new IndexedVector(
-                        new double[2] { buf[1], 0 },
-                        model.VectorWidth);
-
-                //_logger.LogInformation($"{debug[0]}{token.Data}");
-            }
-            else if (count == 1)
-            {
-                yield return new IndexedVector(
-                        new double[2] { buf[0], 0 },
-                        model.VectorWidth);
-
-                //_logger.LogInformation($"{debug[0]}{token.Data}");
-            }
         }
 
         public MemoryMappedFile OpenMMF(string fileName)
@@ -154,16 +82,11 @@ namespace Sir.Search
             if (!File.Exists(fileName))
                 return 0;
 
-            return new FileInfo(fileName).Length / (sizeof(long) + sizeof(int));
+            return new FileInfo(fileName).Length / DocIndexWriter.BlockSize;
         }
 
         public void Truncate(ulong collectionId)
         {
-            if ("lexicon".ToHash() == collectionId)
-            {
-                _lexicon = new double[0];
-            }
-
             var count = 0;
 
             foreach (var file in Directory.GetFiles(Dir, $"{collectionId}*"))
@@ -205,33 +128,26 @@ namespace Sir.Search
             _logger.LogInformation($"truncated index {collectionId} ({count} files)");
         }
 
-        private Memory<double> LoadLexicon()
-        {
-            var collectionId = "lexicon".ToHash();
-            var ixFileName = Path.Combine(Dir, $"{collectionId}.ix");
-
-            if (File.Exists(ixFileName))
-            {
-                using (var ixStream = OpenReadStream(Path.Combine(Dir, $"{collectionId}.ix")))
-                using (var vecStream = OpenReadStream(Path.Combine(Dir, $"{collectionId}.vec")))
-                {
-                    return GraphBuilder.DeserializeSortedList(ixStream, vecStream, Model);
-                }
-            }
-
-            return new double[0];
-        }
-
         public void Train(Job job, int reportSize)
         {
             var time = Stopwatch.StartNew();
 
-            using (var trainSession = CreateTrainLexiconSession())
+            using (var trainSession = CreateTrainSession(job.CollectionId, job.Model))
+            using (var documentWriter = new DocumentWriter(job.CollectionId, this))
             using (var queue = new ProducerConsumerQueue<IDictionary<string, object>>(
                 1,
-                doc =>
+                document =>
                 {
-                    trainSession.Put(doc, job.IndexedFieldNames);
+                    //Parallel.ForEach(document, kv =>
+                    foreach (var kv in document)
+                    {
+                        if (job.IndexedFieldNames.Contains(kv.Key) && kv.Value != null)
+                        {
+                            long keyId = documentWriter.EnsureKeyExists(kv.Key);
+
+                            trainSession.Put(keyId, (string)kv.Value);
+                        }
+                    }//);
                 }))
             {
                 var t = Stopwatch.StartNew();
@@ -251,7 +167,7 @@ namespace Sir.Search
                     var e = t.Elapsed.TotalMilliseconds;
                     var docsPerSecond = (int)(count / e * 1000);
 
-                    _logger.LogInformation($"enqueued batch {++batchNo} in {t.Elapsed}. queue count {queue.Count}. reading from disk at {docsPerSecond} docs/s");
+                    _logger.LogInformation($"enqueued batch {++batchNo} in {t.Elapsed}. queue count {queue.Count}. reading at {docsPerSecond} docs/s");
 
                     t.Restart();
                 }
@@ -267,7 +183,7 @@ namespace Sir.Search
 
             foreach (var document in job.Documents)
             {
-                writeSession.Write(document, job.StoredFieldNames);
+                writeSession.Put(document, job.StoredFieldNames);
 
                 docCount++;
 
@@ -279,14 +195,14 @@ namespace Sir.Search
 
         public void IndexOnly(
             IDictionary<string, object> document, 
-            IIndexSession indexSession, 
+            IndexSession indexSession, 
             HashSet<string> indexedFieldNames)
         {
             var docId = (long)document["___docid"];
             var collectionId = (ulong)document["collectionid"];
 
-            Parallel.ForEach(document, kv =>
-            //foreach (var kv in document)
+            //Parallel.ForEach(document, kv =>
+            foreach (var kv in document)
             {
                 if (indexedFieldNames.Contains(kv.Key) && kv.Value != null)
                 {
@@ -294,12 +210,12 @@ namespace Sir.Search
 
                     indexSession.Put(docId, keyId, (string)kv.Value);
                 }
-            });
+            }//);
         }
 
         public void IndexOnly(
             IEnumerable<IDictionary<string, object>> documents, 
-            IIndexSession indexSession, 
+            IndexSession indexSession, 
             HashSet<string> indexedFieldNames)
         {
             var time = Stopwatch.StartNew();
@@ -315,7 +231,7 @@ namespace Sir.Search
             _logger.LogInformation($"indexing {docCount} documents took {time.Elapsed}.");
         }
 
-        public IndexInfo Write(Job job, WriteSession writeSession, IIndexSession indexSession)
+        public IndexInfo Write(Job job, WriteSession writeSession, IndexSession indexSession)
         {
             var docCount = 0;
             var time = Stopwatch.StartNew();
@@ -333,7 +249,7 @@ namespace Sir.Search
             return indexSession.GetIndexInfo();
         }
 
-        public void Write(Job job, WriteSession writeSession, IIndexSession indexSession, int reportSize)
+        public void Write(Job job, WriteSession writeSession, IndexSession indexSession, int reportSize)
         {
             var time = Stopwatch.StartNew();
             var info = Write(job, writeSession, indexSession);
@@ -348,23 +264,60 @@ namespace Sir.Search
             var batchNo = 0;
             var time = Stopwatch.StartNew();
 
+            _logger.LogInformation($"writing to {job.CollectionId}");
+
             using (var writeSession = CreateWriteSession(job.CollectionId))
-            using (var indexSession = CreateIndexSession(job.CollectionId))
+            using (var documentQueue = new ProducerConsumerQueue<IList<IDictionary<string, object>>>(
+            1,
+            docs =>
             {
+                using (var indexSession = CreateIndexSession(job.CollectionId, job.Model))
+                {
+                    foreach (var doc in docs)
+                    {
+                        writeSession.Put(doc, job.StoredFieldNames);
+
+                        var docId = (long)doc["___docid"];
+
+                        foreach (var kv in doc)
+                        {
+                            if (job.IndexedFieldNames.Contains(kv.Key) && kv.Value != null)
+                            {
+                                var keyId = GetKeyId(job.CollectionId, kv.Key.ToHash());
+
+                                indexSession.Put(docId, keyId, (string)kv.Value);
+                            }
+                        }
+                    }
+                }
+            }))
+            {
+                var t = Stopwatch.StartNew();
+
                 foreach (var batch in job.Documents.Batch(reportSize))
                 {
-                    Write(
-                        new Job(
-                            job.CollectionId,
-                            batch,
-                            job.Model,
-                            job.StoredFieldNames,
-                            job.IndexedFieldNames),
-                        writeSession,
-                        indexSession,
-                        reportSize);
+                    var list = batch.ToList();
 
-                    _logger.LogInformation($"processed batch {++batchNo}");
+                    documentQueue.Enqueue(list);
+
+                    var e = t.Elapsed.TotalMilliseconds;
+                    var docsPerSecond = (int)(list.Count / e * 1000);
+                    //var info = indexSession.GetIndexInfo();
+                    //var debug = new StringBuilder();
+
+                    //foreach (var stat in info.Info)
+                    //{
+                    //    debug.AppendLine(stat.ToString());
+                    //}
+
+                    _logger.LogInformation($"enqueued batch " +
+                        $"{++batchNo} in {t.Elapsed}. " +
+                        $"document queue {documentQueue.Count}. " +
+                        $"write queue {writeSession.QueueCount}. " +
+                        //$"index queue {indexSession.QueueCount}. " +
+                        $"reading at {docsPerSecond} docs/s.");
+
+                    t.Restart();
                 }
             }
 
@@ -374,13 +327,13 @@ namespace Sir.Search
         public void Write(Job job)
         {
             using (var writeSession = CreateWriteSession(job.CollectionId))
-            using (var indexSession = CreateIndexSession(job.CollectionId))
+            using (var indexSession = CreateIndexSession(job.CollectionId, job.Model))
             {
                 Write(job, writeSession, indexSession);
             }
         }
 
-        public void Write(Job job, IIndexSession indexSession)
+        public void Write(Job job, IndexSession indexSession)
         {
             using (var writeSession = CreateWriteSession(job.CollectionId))
             {
@@ -401,7 +354,7 @@ namespace Sir.Search
                 var collectionId = group.Key.ToHash();
 
                 using (var writeSession = CreateWriteSession(collectionId))
-                using (var indexSession = CreateIndexSession(collectionId))
+                using (var indexSession = CreateIndexSession(collectionId, model))
                 {
                     Write(
                         new Job(
@@ -427,7 +380,6 @@ namespace Sir.Search
         {
             _keys = LoadKeys();
             _collectionAliases = LoadCollectionAliases();
-            _lexicon = LoadLexicon();
         }
 
         public ConcurrentDictionary<ulong, ulong> LoadCollectionAliases()
@@ -599,43 +551,42 @@ namespace Sir.Search
             );
         }
 
-        public IIndexSession CreateIndexSession(ulong collectionId)
+        public IndexSession CreateIndexSession(ulong collectionId, IStringModel model)
         {
             return new IndexSession(
                 collectionId, 
                 this, 
-                Model, 
+                model, 
                 Config, 
                 _logger);
         }
 
-        public TrainSession CreateTrainLexiconSession()
+        public TrainSession CreateTrainSession(ulong collectionId, IStringModel model)
         {
             return new TrainSession(
-                "lexicon".ToHash(),
+                collectionId,
                 this, 
-                Model, 
+                model, 
                 Config, 
-                _logger,
-                _lexicon);
+                _logger);
         }
 
-        public IReadSession CreateReadSession()
+        public IReadSession CreateReadSession(IStringModel model)
         {
             return new ReadSession(
                 this,
                 Config,
-                Model,
+                model,
                 new PostingsReader(this),
                 _logger);
         }
 
-        public ValidateSession CreateValidateSession(ulong collectionId)
+        public ValidateSession CreateValidateSession(ulong collectionId, IStringModel model)
         {
             return new ValidateSession(
                 collectionId,
                 this,
-                Model,
+                model,
                 Config,
                 new PostingsReader(this));
         }

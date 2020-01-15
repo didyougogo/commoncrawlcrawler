@@ -2,7 +2,7 @@
   "profiles": {
     "Sir.DbUtil": {
       "commandName": "Project",
-      "commandLineArgs": "train_wat C:\\Users\\marlag\\Downloads\\crawl-data\\CC-MAIN-2019-43\\segments\\1570986647517.11\\wat\\CC-MAIN-20191013195541-20191013222541-00000.warc.wat.gz"
+      "commandLineArgs": "download_wat CC-MAIN-2019-43 D:\\ cc_wat 1"
     }
   }
 }

@@ -24,9 +24,9 @@ namespace Sir.DbUtil
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning)
                     .AddFilter("System", LogLevel.Warning)
-                    .AddFilter("Sir.DbUtil", LogLevel.Debug)
+                    //.AddFilter("Sir.DbUtil", LogLevel.Debug)
                     .AddConsole()
-                    .AddDebug()
+                    //.AddDebug()
                     ;
             });
 
@@ -56,7 +56,7 @@ namespace Sir.DbUtil
             }
             else if (command == "download_wat")
             {
-                DownloadAndIndexWat(args, new BigramModel(model), loggerFactory, logger);
+                DownloadAndIndexWat(args, model, loggerFactory, logger);
             }
             else if (command == "write_wet")
             {
@@ -103,7 +103,7 @@ namespace Sir.DbUtil
                 storedFieldNames,
                 indexedFieldNames);
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), logger))
             {
                 sessionFactory.Write(writeJob, reportSize:1000);
             }
@@ -115,7 +115,7 @@ namespace Sir.DbUtil
         private static void TrainWat(string[] args, IStringModel model, ILogger logger)
         {
             var fileName = args[1];
-            var collectionId = "lexicon".ToHash();
+            var collectionId = "cc_wat_lexicon".ToHash();
             var fieldNames = new HashSet<string>
             { 
                 "title",
@@ -129,11 +129,11 @@ namespace Sir.DbUtil
 
             var writeJob = new Job(
                 collectionId,
-                ReadWatFile(fileName, null),
+                ReadWatFile(fileName),
                 model,
                 fieldNames);
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), logger))
             {
                 sessionFactory.Train(writeJob, reportSize: 1000);
             }
@@ -145,7 +145,7 @@ namespace Sir.DbUtil
         private static void TrainWet(string[] args, IStringModel model, ILogger logger)
         {
             var fileName = args[1];
-            var collectionId = "lexicon".ToHash();
+            var collectionId = "cc_wet_lexicon".ToHash();
             var fieldNames = new HashSet<string> { "description" };
 
             var writeJob = new Job(
@@ -154,7 +154,7 @@ namespace Sir.DbUtil
                 model,
                 fieldNames);
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, logger))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), logger))
             {
                 sessionFactory.Train(writeJob, reportSize: 1000);
             }
@@ -321,10 +321,10 @@ namespace Sir.DbUtil
             };
             var indexedFieldNames = new HashSet<string>
             {
-                "title","description", "scheme", "host", "path", "query", "url", "filename"
+                "title", "description", "scheme", "host", "path", "query", "url", "filename"
             };
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, log))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), log))
             {
                 sessionFactory.Write(
                             new Job(
@@ -333,13 +333,13 @@ namespace Sir.DbUtil
                                 model,
                                 storedFieldNames,
                                 indexedFieldNames),
-                            reportSize:1000);
+                            reportSize:10000);
             }
 
             log.LogInformation($"indexed {fileName} in {time.Elapsed}");
         }
 
-        private static IEnumerable<IDictionary<string, object>> ReadWatFile(string fileName, string refFileName)
+        private static IEnumerable<IDictionary<string, object>> ReadWatFile(string fileName, string refFileName = null)
         {
             using (var fs = File.OpenRead(fileName))
             using (var zip = new GZipStream(fs, CompressionMode.Decompress))
@@ -451,9 +451,9 @@ namespace Sir.DbUtil
             var take = int.Parse(args[3]);
             var collectionId = collection.ToHash();
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, log))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), log))
             {
-                using (var validateSession = sessionFactory.CreateValidateSession(collectionId))
+                using (var validateSession = sessionFactory.CreateValidateSession(collectionId, model))
                 using (var documents = new DocumentStreamSession(new DocumentReader(collectionId, sessionFactory)))
                 {
                     foreach (var doc in documents.ReadDocs(skip, take))
@@ -524,7 +524,7 @@ namespace Sir.DbUtil
             var collection = args[1];
             var collectionId = collection.ToHash();
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, log))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), log))
             {
                 sessionFactory.Truncate(collectionId);
             }
@@ -535,7 +535,7 @@ namespace Sir.DbUtil
             var collection = args[1];
             var collectionId = collection.ToHash();
 
-            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), model, log))
+            using (var sessionFactory = new SessionFactory(new IniConfiguration("sir.ini"), log))
             {
                 sessionFactory.TruncateIndex(collectionId);
             }

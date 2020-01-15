@@ -202,7 +202,7 @@ namespace Sir.VectorSpace
 
                 if (angle >= identicalAngle)
                 {
-                    AddDocId(cursor, node);
+                    MergeDocIds(cursor, node);
 
                     return true;
                 }
@@ -294,7 +294,7 @@ namespace Sir.VectorSpace
                 {
                     lock (cursor.Sync)
                     {
-                        AddDocId(cursor, node);
+                        MergeDocIds(cursor, node);
                     }
 
                     return true;
@@ -357,7 +357,7 @@ namespace Sir.VectorSpace
             target.DocIds.Add(docId);
         }
 
-        public static void AddDocId(VectorNode target, VectorNode node) 
+        public static void MergeDocIds(VectorNode target, VectorNode node) 
         {
             if (node.DocIds != null)
             {
@@ -407,7 +407,7 @@ namespace Sir.VectorSpace
             stream.Write(MemoryMarshal.Cast<long, byte>(span));
         }
 
-        public static (long offset, long length, int count) SerializeSortedList(
+        public static (long offset, long length, int count) SerializeSortedListOfAngles(
             SortedList<double, VectorNode> sortedNodes,
             Stream indexStream)
         {
@@ -426,13 +426,17 @@ namespace Sir.VectorSpace
             return (offset, buf.Length, sortedNodes.Count);
         }
 
-        public static (long offset, long length, int count) SerializeSortedList(
+        public static (long soffset, long slength, long ioffset, long ilength, int count)
+        SerializeSortedList(
             SortedList<double, VectorNode> sortedNodes,
+            Stream sortedListStream,
             Stream indexStream,
-            Stream postingsStream)
+            Stream vectorStream)
         {
+            var soffset = sortedListStream.Position;
+            var ioffset = indexStream.Position;
+
             Span<double> keys = new double[sortedNodes.Count];
-            Span<long> postingsOffsets = new long[sortedNodes.Count];
 
             for (int i = 0; i < keys.Length; i++)
             {
@@ -440,21 +444,49 @@ namespace Sir.VectorSpace
 
                 var node = sortedNodes.Values[i];
 
-                SerializePostings(node, postingsStream);
+                node.VectorOffset = VectorOperations.SerializeVector(node.Vector, vectorStream);
 
-                postingsOffsets[i] = node.PostingsOffset;
+                SerializeNode(node, indexStream);
             }
 
-            var offset = indexStream.Position;
             var keyBuf = MemoryMarshal.Cast<double, byte>(keys);
 
             indexStream.Write(keyBuf);
 
-            var buf = MemoryMarshal.Cast<long, byte>(postingsOffsets);
+            return (soffset, sortedListStream.Position - soffset, ioffset, indexStream.Position - ioffset, sortedNodes.Count);
+        }
 
-            indexStream.Write(buf);
+        public static (long soffset, long slength, long ioffset, long ilength, int count) 
+        SerializeSortedList(
+            SortedList<double, VectorNode> sortedNodes,
+            Stream sortedListStream,
+            Stream indexStream,
+            Stream vectorStream,
+            Stream postingsStream)
+        {
+            var soffset = sortedListStream.Position;
+            var ioffset = indexStream.Position;
 
-            return (offset, indexStream.Position - offset, sortedNodes.Count);
+            Span<double> keys = new double[sortedNodes.Count];
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                keys[i] = sortedNodes.Keys[i];
+
+                var node = sortedNodes.Values[i];
+
+                node.VectorOffset = VectorOperations.SerializeVector(node.Vector, vectorStream);
+
+                SerializePostings(node, postingsStream);
+
+                SerializeNode(node, indexStream);
+            }
+
+            var keyBuf = MemoryMarshal.Cast<double, byte>(keys);
+
+            indexStream.Write(keyBuf);
+
+            return (soffset, sortedListStream.Position - soffset, ioffset, indexStream.Position - ioffset, sortedNodes.Count);
         }
 
         public static (long offset, long length) SerializeTree(
@@ -522,6 +554,31 @@ namespace Sir.VectorSpace
             stream.Write(MemoryMarshal.Cast<long, byte>(payload));
         }
 
+        public static VectorNode DeserializeNode(Stream nodeStream, Stream vectorStream, IModel model, long offset)
+        {
+            nodeStream.Seek(offset, SeekOrigin.Begin);
+
+            Span<byte> buf = new byte[VectorNode.BlockSize];
+
+            var read = nodeStream.Read(buf);
+
+            if (read != VectorNode.BlockSize)
+                throw new DataMisalignedException();
+
+            Span<long> list = MemoryMarshal.Cast<byte, long>(buf);
+
+            // Deserialize node
+            var vecOffset = list[0];
+            var postingsOffset = list[1];
+            var componentCount = list[2];
+            var weight = list[3];
+            var terminator = list[4];
+
+            var vector = VectorOperations.DeserializeVector(vecOffset, (int)componentCount, model.VectorWidth, vectorStream);
+
+            return new VectorNode(postingsOffset, vecOffset, terminator, weight, vector);
+        }
+
         public static VectorNode DeserializeNode(byte[] nodeBuffer, Stream vectorStream, IModel model)
         {
             // Deserialize node
@@ -574,19 +631,27 @@ namespace Sir.VectorSpace
             }
         }
 
-        public static Memory<double> DeserializeSortedList(
-            Stream indexStream,
-            Stream vectorStream,
-            IModel model)
+        public static Memory<double> Map(Stream stream)
         {
             using (var mem = new MemoryStream())
             {
-                indexStream.CopyTo(mem);
+                stream.CopyTo(mem);
 
                 Span<byte> buf = mem.ToArray();
 
                 return MemoryMarshal.Cast<byte, double>(buf).ToArray();
             }
+        }
+
+        public static Memory<double> Map(Stream stream, long offset, int length)
+        {
+            stream.Seek(offset, SeekOrigin.Begin);
+
+            var buf = new byte[length*sizeof(double)];
+
+            stream.Read(buf);
+
+            return MemoryMarshal.Cast<byte, double>(buf).ToArray();
         }
 
         public static void DeserializeTree(

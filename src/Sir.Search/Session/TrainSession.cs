@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using Sir.Core;
 using Sir.VectorSpace;
 using System;
 using System.Collections.Concurrent;
@@ -7,83 +6,50 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Threading;
 
 namespace Sir.Search
 {
-    /// <summary>
-    /// Indexing session targeting a single collection.
-    /// </summary>
     public class TrainSession : IDisposable
     {
+        private readonly IStringModel _model;
+        private readonly IConfigurationProvider _config;
         private readonly ulong _collectionId;
         private readonly SessionFactory _sessionFactory;
-        private readonly IConfigurationProvider _config;
-        private readonly IStringModel _model;
         private readonly ILogger _logger;
+        private readonly ConcurrentDictionary<long, ConcurrentDictionary<double, VectorNode>> _index;
         private bool _flushed;
-        private int _merges;
-        private int _numOfDocs;
-
-        public int Merges { get { return _merges; } }
-
-        public ConcurrentDictionary<double, VectorNode> Space { get; }
+        private long _merges;
 
         public TrainSession(
             ulong collectionId,
             SessionFactory sessionFactory,
             IStringModel model,
             IConfigurationProvider config,
-            ILogger logger,
-            Memory<double> space)
+            ILogger logger)
         {
             _collectionId = collectionId;
             _sessionFactory = sessionFactory;
             _config = config;
             _model = model;
+            _index = new ConcurrentDictionary<long, ConcurrentDictionary<double, VectorNode>>();
             _logger = logger;
-
-            Space = new ConcurrentDictionary<double, VectorNode>(
-                space.ToArray().ToDictionary(x=>x, x=>(VectorNode)null));
         }
 
-        public void Put(IEnumerable<IDictionary<string, object>> documents, HashSet<string> trainingFieldNames)
+        public void Put(long keyId, string value)
         {
-            var count = 0;
-            var time = Stopwatch.StartNew();
+            _flushed = false;
 
-            foreach (var doc in documents)
+            var tokens = _model.Tokenize(value.ToCharArray());
+            var column = _index.GetOrAdd(keyId, new ConcurrentDictionary<double, VectorNode>());
+
+            foreach (var token in tokens)
             {
-                Put(doc, trainingFieldNames);
+                var angle = _model.CosAngle(_model.SortingVector, token);
+                var node = new VectorNode(token);
 
-                count++;
-            }
-
-            var t = time.Elapsed.TotalMilliseconds;
-            var docsPerSecond = (int)(count / t * 1000);
-
-            _numOfDocs += count;
-
-            _logger.LogInformation($"processed {_numOfDocs} docs. {_merges} merges. weight {Space.Count}. {docsPerSecond} docs/s");
-        }
-
-        public void Put(IDictionary<string, object> document, HashSet<string> trainingFieldNames)
-        {
-            foreach (var kv in document)
-            {
-                if (trainingFieldNames.Contains(kv.Key) && kv.Value != null)
+                if (!column.TryAdd(angle, node))
                 {
-                    var tokens = _model.Tokenize(((string)kv.Value).ToCharArray());
-
-                    foreach (var token in tokens)
-                    {
-                        var angle = _model.CosAngle(_model.SortingVector, token);
-
-                        if (!Space.TryAdd(angle, new VectorNode(token)))
-                        {
-                            _merges++;
-                        }
-                    }
+                    _merges++;
                 }
             }
         }
@@ -97,32 +63,41 @@ namespace Sir.Search
 
             var time = Stopwatch.StartNew();
 
-            using (var indexStream = _sessionFactory.OpenTruncatedStream($"{_collectionId}.ix"))
-            using (var columnWriter = new ColumnWriter(indexStream))
+            foreach (var column in _index)
             {
-                var sorted = new SortedList<double, VectorNode>(Space);
+                using (var sortedListStream = _sessionFactory.OpenAppendStream($"{_collectionId}.{column.Key}.sl"))
+                using (var indexStream = _sessionFactory.OpenAppendStream($"{_collectionId}.{column.Key}.uix"))
+                using (var vectorStream = _sessionFactory.OpenAppendStream($"{_collectionId}.vec"))
+                using (var sortedListPage = new PageIndexWriter(_sessionFactory.OpenAppendStream($"{_collectionId}.{column.Key}.slp")))
+                using (var indexPage = new PageIndexWriter(_sessionFactory.OpenAppendStream($"{_collectionId}.{column.Key}.uixp")))
+                using (var columnWriter = new ColumnWriter(sortedListStream, indexStream, sortedListPage, indexPage))
+                {
+                    var sorted = new SortedList<double, VectorNode>(column.Value);
 
-                _logger.LogInformation($"sorted {sorted.Count} angles in {time.Elapsed}");
+                    _logger.LogInformation($"sorted {sorted.Count} angles in {time.Elapsed}");
 
-                time.Restart();
+                    time.Restart();
 
-                var size = columnWriter.CreateSortedPage(sorted);
+                    var size = columnWriter.CreatePage(
+                        sorted,
+                        vectorStream);
 
-                _logger.LogInformation($"serialized segment with size {size} in {time.Elapsed}");
+                    _logger.LogInformation($"serialized segment {size} in {time.Elapsed}");
 
-
-                time.Restart();
-                File.WriteAllLines("train.log", sorted.Select(x=>x.ToString()));
-                _logger.LogInformation($"wrote train.log in {time.Elapsed}");
+#if DEBUG
+                    File.WriteAllLines($"train.{column.Key}.log", sorted.Select(x => x.ToString()));
+#endif
+                }
             }
+
+            _index.Clear();
+            _merges = 0;
         }
 
         public void Dispose()
         {
             if (!_flushed)
-            {
                 Flush();
-            }
         }
     }
 }

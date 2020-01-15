@@ -17,10 +17,25 @@ namespace Sir.VectorSpace
 
             for (int i = 0; i < width; i++)
             {
-                storage[i] = Math.Log(1+i);
+                storage[i] = Math.Log(1 + i);
             }
 
             return new IndexedVector(storage);
+        }
+
+        public static void AddOrAppendToComponent(
+            this SortedList<int, double> vec, int key)
+        {
+            double v;
+
+            if (vec.TryGetValue(key, out v))
+            {
+                vec[key] = v + 1;
+            }
+            else
+            {
+                vec.Add(key, 1);
+            }
         }
 
         public static IVector DeserializeVector(
@@ -148,24 +163,6 @@ namespace Sir.VectorSpace
             }
 
             return result;
-        }
-
-        public static void AddOrAppendToComponent(this SortedList<int, double> vec, int key, double value)
-        {
-            double v;
-
-            if (vec.TryGetValue(key, out v))
-            {
-                vec[key] += v * value;
-            }
-            else
-            {
-                var x = Math.Log(Math.Sqrt(key));
-
-                v = Math.Log(1 + (value/(1+vec.Count)) * x);
-
-                vec.Add(key, v);
-            }
         }
 
         public static bool ContainsMany(this string text, char c)

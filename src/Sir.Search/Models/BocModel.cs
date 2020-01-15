@@ -9,8 +9,8 @@ namespace Sir.Search
 {
     public class BocModel : IStringModel
     {
-        public double IdenticalAngle => 0.999d;
-        public double FoldAngle => 0.499d;
+        public double IdenticalAngle => 0.99d;
+        public double FoldAngle => 0.49d;
         public int VectorWidth => 256;
         public IVector SortingVector { get; }
 
@@ -21,7 +21,7 @@ namespace Sir.Search
 
         public IEnumerable<IVector> Tokenize(Memory<char> source)
         {
-            var result = new List<IVector>();
+            var tokens = new List<IVector>();
 
             if (source.Length > 0)
             {
@@ -36,36 +36,76 @@ namespace Sir.Search
 
                     if (c < VectorWidth && char.IsLetter(c))
                     {
-                        embedding.AddOrAppendToComponent(c, 1);
+                        embedding.AddOrAppendToComponent(c);
                     }
                     else
                     {
                         var len = index - offset;
 
-                        if (embedding.Count > 0 && len < 30)
+                        if (embedding.Count > 0 && len < 20)
                         {
-                            result.Add(new IndexedVector(
+                            var vector = new IndexedVector(
                                 embedding,
-                                source.Slice(offset, index - offset),
-                                VectorWidth));
+                                source.Slice(offset, len),
+                                VectorWidth);
+
+                            tokens.Add(vector);
                         }
 
                         embedding.Clear();
-
                         offset = index + 1;
                     }
                 }
 
-                if (embedding.Count > 0)
+                if (embedding.Count > 0 && (index - offset) < 20)
                 {
-                    result.Add(new IndexedVector(
-                            embedding,
-                            source.Slice(offset, index - offset),
-                            VectorWidth));
+                    var len = index - offset;
+
+                    var vector = new IndexedVector(
+                                embedding,
+                                source.Slice(offset, len),
+                                VectorWidth);
+
+                    tokens.Add(vector);
                 }
             }
 
-            return result;
+            return tokens;
+        }
+
+        private IEnumerable<IVector> Yield(IEnumerable<IVector> tokens)
+        {
+            IVector prev = null;
+            var index = 0;
+
+            foreach (var token in tokens)
+            {
+                var angle = CosAngle(token, SortingVector);
+                var vector = new IndexedVector(index, angle, VectorWidth, token.Data);
+
+                if (index++ == 2)
+                {
+                    index = 0;
+                }
+
+                if (prev != null)
+                {
+                    var bigram = vector.Value.Add(prev.Value);
+
+                    yield return new IndexedVector(bigram);
+
+                    prev = vector;
+                }
+
+                prev = vector;
+            }
+
+            if (index == 1)
+            {
+                var bigram = prev.Value.Add(new IndexedVector(1, prev.Value[0], VectorWidth).Value);
+
+                yield return new IndexedVector(bigram);
+            }
         }
 
         public double CosAngle(IVector vec1, IVector vec2)

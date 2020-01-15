@@ -39,7 +39,7 @@ namespace Sir.HttpServer.Features
             _queryParser = queryParser;
             _model = model;
             _logger = logger;
-            _readSession = sessionFactory.CreateReadSession();
+            _readSession = sessionFactory.CreateReadSession(model);
             _enquedIds = new HashSet<string>();
 
             _wetStoredFieldNames = new HashSet<string> { "url", "description" };

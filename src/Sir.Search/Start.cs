@@ -15,7 +15,6 @@ namespace Sir.Search
             var model = new BocModel();
             var sessionFactory = new SessionFactory(
                 config, 
-                model, 
                 loggerFactory.CreateLogger<SessionFactory>());
 
             var qp = new QueryParser(sessionFactory, model);

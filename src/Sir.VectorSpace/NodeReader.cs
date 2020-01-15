@@ -31,7 +31,7 @@ namespace Sir.VectorSpace
             _ixFile = ixFile;
         }
 
-        public Hit ClosestTerm(IVector vector, IStringModel model)
+        public Hit ClosestMatch(IVector vector, IStringModel model)
         {
             var pages = GetAllPages(
                 Path.Combine(_sessionFactory.Dir, $"{_collectionId}.{KeyId}.ixtp"));
@@ -64,11 +64,11 @@ namespace Sir.VectorSpace
             return best;
         }
 
-        public IList<(long offset, long length)> GetAllPages(string pageFileName)
+        private IList<(long offset, long length)> GetAllPages(string pageFileName)
         {
-            using (var ixpStream = _sessionFactory.OpenReadStream(pageFileName))
+            using (var stream = _sessionFactory.OpenReadStream(pageFileName))
             {
-                return new PageIndexReader(ixpStream).GetAll();
+                return new PageIndexReader(stream).GetAllPages();
             }
         }
 
@@ -206,6 +206,11 @@ namespace Sir.VectorSpace
         {
             _vectorFile.Dispose();
             _ixFile.Dispose();
+        }
+
+        public int IndexOfClosestMatch(double angle)
+        {
+            throw new NotImplementedException();
         }
     }
 }

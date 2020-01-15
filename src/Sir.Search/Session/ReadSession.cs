@@ -182,7 +182,7 @@ namespace Sir.Search
 
                 if (indexReader != null)
                 {
-                    var hit = indexReader.ClosestTerm(term.Vector, _model);
+                    var hit = indexReader.ClosestMatch(term.Vector, _model);
 
                     if (hit == null || hit.Score < _model.IdenticalAngle)
                     {
@@ -241,7 +241,7 @@ namespace Sir.Search
 
                 if (indexReader != null)
                 {
-                    var hit = indexReader.ClosestTerm(term.Vector, _model);
+                    var hit = indexReader.ClosestMatch(term.Vector, _model);
 
                     if (hit != null && hit.Score > 0)
                     {

@@ -7,23 +7,40 @@ namespace Sir.VectorSpace
     public class ColumnWriter : IDisposable
     {
         private readonly Stream _ixStream;
+        private readonly Stream _sortedListStream;
+        private readonly PageIndexWriter _sortedListPage;
+        private readonly PageIndexWriter _indexPage;
 
         public ColumnWriter(
-            Stream indexStream)
+            Stream indexStream,
+            PageIndexWriter indexPage)
         {
             _ixStream = indexStream;
+            _indexPage = indexPage;
+        }
+
+        public ColumnWriter(
+            Stream sortedListStream,
+            Stream indexStream,
+            PageIndexWriter sortedListPage,
+            PageIndexWriter indexPage)
+        {
+            _ixStream = indexStream;
+            _sortedListStream = sortedListStream;
+            _sortedListPage = sortedListPage;
+            _indexPage = indexPage;
         }
 
         public (int depth, int width) CreatePage(
-            VectorNode column, 
-            Stream vectorStream, 
-            Stream postingsStream, 
+            VectorNode column,
+            Stream vectorStream,
+            Stream postingsStream,
             PageIndexWriter pageIndexWriter)
         {
             var page = GraphBuilder.SerializeTree(
-                column, 
-                _ixStream, 
-                vectorStream, 
+                column,
+                _ixStream,
+                vectorStream,
                 postingsStream);
 
             pageIndexWriter.Put(page.offset, page.length);
@@ -31,26 +48,36 @@ namespace Sir.VectorSpace
             return PathFinder.Size(column);
         }
 
-        public int CreateSortedPage(
+        public int CreatePage(
             SortedList<double, VectorNode> sortedColumn,
-            Stream postingsStream,
-            PageIndexWriter pageIndexWriter)
+            Stream vectorStream,
+            Stream postingsStream)
         {
             var page = GraphBuilder.SerializeSortedList(
                 sortedColumn,
+                _sortedListStream,
                 _ixStream,
+                vectorStream,
                 postingsStream);
 
-            pageIndexWriter.Put(page.offset, page.length);
+            _sortedListPage.Put(page.soffset, page.slength);
+            _indexPage.Put(page.ioffset, page.ilength);
 
             return page.count;
         }
 
-        public int CreateSortedPage(SortedList<double,VectorNode> sortedColumn)
+        public int CreatePage(
+            SortedList<double, VectorNode> sortedColumn,
+            Stream vectorStream)
         {
             var page = GraphBuilder.SerializeSortedList(
-                sortedColumn, 
-                _ixStream);
+                sortedColumn,
+                _sortedListStream,
+                _ixStream,
+                vectorStream);
+
+            _sortedListPage.Put(page.soffset, page.slength);
+            _indexPage.Put(page.ioffset, page.ilength);
 
             return page.count;
         }

@@ -29,7 +29,7 @@ namespace Sir.Search
             _sessionFactory = sessionFactory;
             _config = config;
             _model = model;
-            _readSession = sessionFactory.CreateReadSession();
+            _readSession = sessionFactory.CreateReadSession(model);
         }
 
         public void Validate(IDictionary<string, object> doc)

@@ -102,7 +102,7 @@ namespace Sir
             ComponentCount = tuples.Length;
         }
 
-        public IndexedVector(int index, double value, int vectorWidth)
+        public IndexedVector(int index, double value, int vectorWidth, ReadOnlyMemory<char>? data = null)
         {
             var tuples = new Tuple<int, double>[] { new Tuple<int, double>(index, value) };
 
@@ -110,14 +110,18 @@ namespace Sir
                 SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
 
             ComponentCount = tuples.Length;
+
+            Data = data;
         }
 
-        public IndexedVector(Tuple<int, double>[] tuples, int vectorWidth)
+        public IndexedVector(Tuple<int, double>[] tuples, int vectorWidth, ReadOnlyMemory<char>? data = null)
         {
             Value = CreateVector.Sparse(
                 SparseVectorStorage<double>.OfIndexedEnumerable(vectorWidth, tuples));
 
             ComponentCount = tuples.Length;
+
+            Data = data;
         }
 
         public IndexedVector(Vector<double> vector)

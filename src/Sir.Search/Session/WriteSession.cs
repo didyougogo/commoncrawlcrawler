@@ -15,6 +15,8 @@ namespace Sir.Search
         private readonly ProducerConsumerQueue<(IDictionary<string, object> document, HashSet<string> storedFieldNames)> _queue;
         private readonly SessionFactory _sessionFactory;
 
+        public int QueueCount { get { return _queue.Count; } }
+
         public WriteSession(
             ulong collectionId,
             DocumentWriter streamWriter,
@@ -26,13 +28,7 @@ namespace Sir.Search
             _sessionFactory = sessionFactory;
         }
 
-        public void Dispose()
-        {
-            _queue.Dispose();
-            _streamWriter.Dispose();
-        }
-
-        public void Write(IDictionary<string, object> document, HashSet<string> storedFieldNames)
+        public void Put(IDictionary<string, object> document, HashSet<string> storedFieldNames)
         {
             document["created"] = DateTime.Now.ToBinary();
             document["collectionid"] = _collectionId;
@@ -78,6 +74,12 @@ namespace Sir.Search
             var docMeta = _streamWriter.PutDocumentMap(docMap);
 
             _streamWriter.PutDocumentAddress((long)work.document["___docid"], docMeta.offset, docMeta.length);
+        }
+
+        public void Dispose()
+        {
+            _queue.Dispose();
+            _streamWriter.Dispose();
         }
     }
 }

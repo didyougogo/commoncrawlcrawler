@@ -5,6 +5,7 @@ namespace Sir.VectorSpace
     public interface INodeReader : IDisposable
     {
         long KeyId { get; }
-        Hit ClosestTerm(IVector vector, IStringModel model);
+        Hit ClosestMatch(IVector vector, IStringModel model);
+        int IndexOfClosestMatch(double angle);
     }
 }
